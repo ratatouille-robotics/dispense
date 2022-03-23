@@ -1,0 +1,14 @@
+name: lentils
+tolerance: 5.0
+controller:
+  type: pd
+  morphology: 
+  p_gain: 0.0025
+  d_gain: 0.1
+  max_acc_scaling: 1
+  max_vel_scaling: 1
+  rot_dir: counter-clockwise
+  rot_axis: 
+    x: 0
+    y: 0
+    z: 1
