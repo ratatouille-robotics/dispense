@@ -10,7 +10,11 @@ from typing import Union, List
 
 import rospy
 from geometry_msgs.msg import Pose
-from tf.transformations import quaternion_matrix, translation_matrix
+from tf.transformations import (
+    quaternion_matrix,
+    translation_matrix,
+    rotation_from_matrix,
+)
 
 from motion.commander import RobotMoveGroup
 from sensor_interface.msg import Weight
@@ -23,6 +27,8 @@ MAX_ROT_ACC = np.pi / 4
 MIN_ROT_ACC = -2 * MAX_ROT_ACC
 MAX_ROT_VEL = np.pi / 32
 MIN_ROT_VEL = -4 * MAX_ROT_VEL
+
+ANGLE_LIMIT = np.pi / 2
 
 CONTAINER_OFFSET = np.array([0.005, 0.005, 0.250], dtype=np.float)
 
@@ -41,6 +47,13 @@ def get_transform(curr_pose: Pose, container_offset: Union[List, np.ndarray]):
     container_transform = translation_matrix(container_offset)
     total_tranform = np.matmul(quat_transform, container_transform)
     return total_tranform
+
+
+def check_limit(start_T, curr_T, angle_limit):
+    start_T_inv = T.TransInv(start_T)
+    disp = np.matmul(start_T_inv, curr_T)
+    angle, _, _ = rotation_from_matrix(disp)
+    return np.abs(angle) < angle_limit
 
 
 class Dispenser:
@@ -97,7 +110,7 @@ class Dispenser:
         # Dispense ingredient
         rospy.loginfo("Dispensing started...")
         if self.ctrl_params["type"] == "pd":
-            self.run_pd_control(target_wt, err_tolerance)
+            success = self.run_pd_control(target_wt, err_tolerance)
 
         # Move robot to start position
         self.robot_mg.go_to_joint_state(
@@ -106,11 +119,18 @@ class Dispenser:
             velocity_scaling=0.4,
             acc_scaling=0.4,
         )
-        rospy.loginfo("Ingredient dispensed...")
+
+        if (target_wt - (self.get_weight() - self.start_wt) < -err_tolerance):
+            rospy.logerr("Dispensed amount exceeded the tolerance...")
+            success = False
+        if success:
+            rospy.loginfo("Ingredient dispensed successfuly...")
+
         if self.log_data:
             self.out_file.close()
 
     def run_pd_control(self, target_wt, err_tolerance):
+        start_T = T.pose2homogeneous_matrix(self.robot_mg.get_current_pose())
         error = last_error = target_wt
 
         while error > err_tolerance:
@@ -143,6 +163,16 @@ class Dispenser:
             self.last_vel = self.vel
             last_error = error
 
+            if not check_limit(
+                start_T,
+                T.pose2homogeneous_matrix(self.robot_mg.get_current_pose()),
+                ANGLE_LIMIT,
+            ):
+                rospy.logerr(
+                    "Container does not seem to have sufficient ingredient quantity..."
+                )
+                return False
+
             self.rate.sleep()
             if self.log_data:
                 self.out_file.write(
@@ -151,3 +181,4 @@ class Dispenser:
                     )
                 )
         rospy.loginfo("PD control phase completed...")
+        return True
