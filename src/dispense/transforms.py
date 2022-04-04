@@ -146,7 +146,7 @@ def position2numpy(pos):
 _EPS = np.finfo(float).eps * 4.0
 
 
-def pose2homogeneous_matrix(pose):
+def pose2matrix(pose):
     """
     Return homogeneous rotation matrix from a quaternion and translation
     """

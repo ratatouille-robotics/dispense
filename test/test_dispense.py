@@ -1,11 +1,23 @@
 #!/usr/bin/env python3
 import sys
+import yaml
 import rospy
+import pathlib
 
 from motion.commander import RobotMoveGroup
 from motion.utils import make_pose
 
 from dispense.dispense import Dispenser
+
+HOME_JOINT = [-0.4412, -2.513700624505514, 2.5439, -3.1718, -1.1295, 3.1416]
+INGREDIENT = "lentils"
+
+POURING_POSES = {
+    "regular": {
+        "corner": ([-0.425, 0.05, 0.5], [0.6961, -0.5842, -0.4161, 0.0310]),
+        "edge": ([-0.435, 0.250, 0.485], [0.859, -0.359, -0.155, 0.331]),
+    }
+}
 
 
 def run():
@@ -13,23 +25,35 @@ def run():
     robot_mg = RobotMoveGroup()
 
     input_wt = input("Enter desired ingredient quantity (in grams): ")
-    while (input_wt.isdigit() and float(input_wt) > 0 and float(input_wt) <= 1000):
+    while input_wt.isdigit() and float(input_wt) > 0 and float(input_wt) <= 1000:
         # Move to home position
-        home_pose = make_pose([-0.2, -0.1, 0.5], [-0.5, 0.5, 0.5, -0.5])
-        robot_mg.go_to_pose_goal(home_pose, cartesian_path=True, velocity_scaling=0.3)
+        assert robot_mg.go_to_joint_state(
+            HOME_JOINT, cartesian_path=True, velocity_scaling=0.15
+        )
+
+        # Load ingredient-specific params
+        config_dir = pathlib.Path(__file__).parent.parent
+        with open(config_dir / f"config/ingredient_params/{INGREDIENT}.yaml", "r") as f:
+            params = yaml.safe_load(f)
 
         # Move to pre-dispense position
-        target_joint = [-0.0804, -1.6917, 1.6867, -2.2644, -2.1241, 2.6997]
-        robot_mg.go_to_joint_state(
-            target_joint, cartesian_path=False, velocity_scaling=0.15
+        pos, orient = POURING_POSES[params["container"]][params["pouring_position"]]
+        pre_dispense_pose = make_pose(pos, orient)
+        assert robot_mg.go_to_pose_goal(
+            pre_dispense_pose,
+            cartesian_path=True,
+            orient_tolerance=0.05,
+            velocity_scaling=0.15,
         )
 
         # Dispense ingredient
         dispenser = Dispenser(robot_mg)
-        dispenser.dispense_ingredient("lentils", float(input_wt))
+        dispenser.dispense_ingredient(params, float(input_wt))
 
         # Return to home position
-        robot_mg.go_to_pose_goal(home_pose, cartesian_path=True, velocity_scaling=0.3)
+        assert robot_mg.go_to_joint_state(
+            HOME_JOINT, cartesian_path=True, velocity_scaling=0.15
+        )
 
         # Get next entry from user
         input_wt = input("Enter desired ingredient quantity (in grams): ")
