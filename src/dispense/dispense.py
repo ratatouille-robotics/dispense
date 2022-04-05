@@ -126,12 +126,12 @@ class Dispenser:
         dispensed_wt = self.get_weight() - self.start_wt
         if (dispensed_wt - target_wt) > err_tolerance:
             rospy.logerr(
-                f"Dispensed amount exceeded the tolerance...\nRequest Quantity: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
+                f"Dispensed amount exceeded the tolerance...\nRequested Qty: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
             )
             success = False
         if success:
             rospy.loginfo(
-                f"Ingredient dispensed successfuly...\nRequest Quantity: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
+                f"Ingredient dispensed successfuly...\nRequested Qty: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
             )
 
         if self.log_data:

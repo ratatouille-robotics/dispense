@@ -10,6 +10,7 @@ class SinusoidalTrajectory:
         axis: Union[List, np.ndarray],
         amplitude: float,
         frequency: float,
+        pattern: List = [1]
     ) -> None:
         assert amplitude > 0, "Invalid amplitude value"
         assert frequency > 0 and frequency < 100, "Invlaid frequency value"
@@ -17,16 +18,16 @@ class SinusoidalTrajectory:
         self.axis = np.array(axis) / np.linalg.norm(axis)
         self.amplitude = amplitude
         self.omega = 2 * np.pi * frequency
+        self.t_period = 1 / frequency
         self.time_interval = time_interval
         self.t_step = 0
-        self.sum = 0
+        self.pattern = pattern
 
     def get_twist(self):
-        v = (self.amplitude * self.omega) * np.sin(
-            self.omega * self.time_interval * self.t_step
-        )
-
-        self.sum += v
-        v = v * self.axis
+        t = self.time_interval * self.t_step
+        if self.pattern[int((t // self.t_period) % len(self.pattern))] == 1:
+            v = (self.amplitude * self.omega) * np.sin(self.omega * t)
+        else:
+            v = 0
         self.t_step += 1
-        return v
+        return v * self.axis
