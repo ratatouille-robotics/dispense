@@ -81,7 +81,7 @@ class Dispenser:
         self, ingredient_params, target_wt, err_tolerance=None, log_data=True
     ):
         # allow weighing scale measurement to be read
-        rospy.sleep(0.1)
+        rospy.sleep(0.2)
 
         # set ingredient-specific params
         err_tolerance = (
@@ -125,10 +125,14 @@ class Dispenser:
 
         dispensed_wt = self.get_weight() - self.start_wt
         if (dispensed_wt - target_wt) > err_tolerance:
-            rospy.logerr("Dispensed amount exceeded the tolerance...")
+            rospy.logerr(
+                f"Dispensed amount exceeded the tolerance...\nRequest Quantity: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
+            )
             success = False
         if success:
-            rospy.loginfo("Ingredient dispensed successfuly...")
+            rospy.loginfo(
+                f"Ingredient dispensed successfuly...\nRequest Quantity: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
+            )
 
         if self.log_data:
             self.out_file.close()
@@ -179,7 +183,10 @@ class Dispenser:
             accel = self.vel - self.last_vel
             self.last_vel = self.vel
 
-            if get_rotation(start_T, T.pose2matrix(curr_pose))[0] >= ANGLE_LIMIT:
+            if (
+                np.abs(get_rotation(start_T, T.pose2matrix(curr_pose))[0])
+                >= ANGLE_LIMIT
+            ):
                 rospy.logerr(
                     "Container does not seem to have sufficient ingredient quantity..."
                 )
