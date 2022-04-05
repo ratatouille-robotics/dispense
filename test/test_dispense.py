@@ -10,11 +10,11 @@ from motion.utils import make_pose
 from dispense.dispense import Dispenser
 
 HOME_JOINT = [-0.4412, -2.513700624505514, 2.5439, -3.1718, -1.1295, 3.1416]
-INGREDIENT = "lentils"
+INGREDIENT = "peanuts"
 
 POURING_POSES = {
     "regular": {
-        "corner": ([-0.425, 0.05, 0.5], [0.6961, -0.5842, -0.4161, 0.0310]),
+        "corner": ([-0.425, -0.02, 0.5], [0.671, -0.613, -0.414, 0.048]),
         "edge": ([-0.435, 0.250, 0.485], [0.859, -0.359, -0.155, 0.331]),
     }
 }
