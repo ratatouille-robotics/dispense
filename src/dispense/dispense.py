@@ -33,7 +33,10 @@ ANGLE_LIMIT = (1 / 2) * np.pi
 DERIVATIVE_WINDOW = 0.1  # has to greater than equal to T_STEP
 
 # offsets from wrist_link_3
-CONTAINER_OFFSET = np.array([0.040, 0.030, 0.250], dtype=np.float)
+CONTAINER_OFFSET = {
+    "regular": np.array([0.040, 0.030, 0.250], dtype=np.float),
+    "liquid": np.array([0.035, 0.120, 0.250], dtype=np.float)
+}
 
 
 def get_transform(curr_pose: Pose, container_offset: Union[List, np.ndarray]):
@@ -88,6 +91,7 @@ class Dispenser:
             ingredient_params["tolerance"] if err_tolerance is None else err_tolerance
         )
         self.ctrl_params = ingredient_params["controller"]
+        self.container_offset = CONTAINER_OFFSET[ingredient_params["container"]]
 
         # set run-specific params
         self.log_data = log_data
@@ -149,6 +153,7 @@ class Dispenser:
         base_raw_twist = np.array(
             [0, 0, 0] + self.ctrl_params["rot_axis"], dtype=np.float
         )
+        success = True
 
         while error > err_tolerance:
             iter_start_time = time.time()
@@ -175,7 +180,7 @@ class Dispenser:
             if self.ctrl_params["shaking"]:
                 raw_twist[:3] += shake_generator.get_twist()
             curr_pose = self.robot_mg.get_current_pose()
-            twist_transform = get_transform(curr_pose, CONTAINER_OFFSET)
+            twist_transform = get_transform(curr_pose, self.container_offset)
             twist = T.TransformTwist(raw_twist, twist_transform)
             twist = T.numpy2twist(twist)
 
@@ -190,7 +195,8 @@ class Dispenser:
                 rospy.logerr(
                     "Container does not seem to have sufficient ingredient quantity..."
                 )
-                return False
+                success = False
+                break
 
             self.rate.sleep()
             if self.log_data:
@@ -222,7 +228,7 @@ class Dispenser:
             self.vel = np.clip(self.vel, MIN_ROT_VEL, MAX_ROT_VEL)
 
             raw_twist = self.vel * base_raw_twist
-            twist_transform = get_transform(curr_pose, CONTAINER_OFFSET)
+            twist_transform = get_transform(curr_pose, self.container_offset)
             twist = T.TransformTwist(raw_twist, twist_transform)
             twist = T.numpy2twist(twist)
 
@@ -239,4 +245,4 @@ class Dispenser:
                 )
 
         rospy.loginfo("PD control phase completed...")
-        return True
+        return success
