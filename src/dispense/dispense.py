@@ -24,13 +24,16 @@ import dispense.transforms as T
 import dispense.primitives as prim
 
 
-T_STEP = 0.01
+T_STEP = 0.005
 MAX_ROT_ACC = np.pi / 4
 MIN_ROT_ACC = -2 * MAX_ROT_ACC
 MAX_ROT_VEL = np.pi / 32
 MIN_ROT_VEL = -2 * MAX_ROT_VEL
 
-ANGLE_LIMIT = {"regular": (1 / 3) * np.pi, "liquid": (2 / 5) * np.pi}
+ANGLE_LIMIT = {
+    "regular": {"corner": (1 / 3) * np.pi, "edge": (3 / 5) * np.pi},
+    "liquid": {"corner": (2 / 5) * np.pi},
+}
 
 DERIVATIVE_WINDOW = 0.1  # has to greater than equal to T_STEP
 
@@ -105,13 +108,15 @@ class Dispenser:
         self.ctrl_params = ingredient_params["controller"]
         self.container = ingredient_params["container"]
         self.container_offset = CONTAINER_OFFSET[ingredient_params["container"]]
-        self.angle_limit = ANGLE_LIMIT[ingredient_params["container"]]
+        self.angle_limit = ANGLE_LIMIT[self.container][
+            ingredient_params["pouring_position"]
+        ]
 
         # set ingredient-specific limits
         self.max_rot_vel = self.ctrl_params["vel_scaling"] * MAX_ROT_VEL
         self.min_rot_vel = self.ctrl_params["vel_scaling"] * MIN_ROT_VEL
         self.max_rot_acc = self.ctrl_params["acc_scaling"] * MAX_ROT_ACC
-        self.min_rot_acc = self.ctrl_params["vel_scaling"] * MIN_ROT_ACC 
+        self.min_rot_acc = self.ctrl_params["vel_scaling"] * MIN_ROT_ACC
 
         # set run-specific params
         self.log_data = log_data
@@ -148,12 +153,16 @@ class Dispenser:
         )
 
         dispensed_wt = self.get_weight() - self.start_wt
-        if (dispensed_wt - target_wt) > err_tolerance:
+        if not success and (dispensed_wt - target_wt) <= err_tolerance:
+            rospy.loginfo(
+                f"Requested Qty: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
+            )
+        elif (dispensed_wt - target_wt) > err_tolerance:
             rospy.logerr(
                 f"Dispensed amount exceeded the tolerance...\nRequested Qty: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
             )
             success = False
-        if success:
+        else:
             rospy.loginfo(
                 f"Ingredient dispensed successfuly...\nRequested Qty: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
             )
@@ -166,13 +175,27 @@ class Dispenser:
         assert DERIVATIVE_WINDOW >= T_STEP
         start_T = T.pose2matrix(self.robot_mg.get_current_pose())
         if self.ctrl_params["shaking"]:
-            shake_generator = prim.SinusoidalTrajectory(
-                time_interval=T_STEP, **self.ctrl_params["shake_params"]
-            )
+            if self.ctrl_params.get("trans_shake_params") is not None:
+                trans_shake_generator = prim.SinusoidalTrajectory(
+                    time_interval=T_STEP, **self.ctrl_params["trans_shake_params"]
+                )
+            else:
+                trans_shake_generator = None
+            if self.ctrl_params.get("rot_shake_params") is not None:
+                rot_shake_generator = prim.SinusoidalTrajectory(
+                    time_interval=T_STEP, **self.ctrl_params["rot_shake_params"]
+                )
+            else:
+                rot_shake_generator = None
+        else:
+            trans_shake_generator = rot_shake_generator = None
         error = target_wt
         wt_fb_acc = deque(maxlen=int(DERIVATIVE_WINDOW / T_STEP) + 1)
         base_raw_twist = np.array(
             [0, 0, 0] + self.ctrl_params["rot_axis"], dtype=np.float
+        )
+        self.robot_mg.send_cartesian_vel_trajectory(
+            T.numpy2twist(np.zeros_like(base_raw_twist))
         )
         success = True
 
@@ -205,11 +228,18 @@ class Dispenser:
             self.vel = np.clip(self.vel, self.min_rot_vel, self.max_rot_vel)
 
             raw_twist = self.vel * base_raw_twist
-            if self.ctrl_params["shaking"]:
-                raw_twist[:3] += shake_generator.get_twist()
+            if trans_shake_generator is not None:
+                raw_twist[:3] += trans_shake_generator.get_twist()
             curr_pose = self.robot_mg.get_current_pose()
             twist_transform = get_transform(curr_pose, self.container_offset)
             twist = T.TransformTwist(raw_twist, twist_transform)
+            if rot_shake_generator is not None:
+                shake_twist = np.zeros_like(twist)
+                shake_twist[3:] += rot_shake_generator.get_twist()
+                shake_twist_transform = get_transform(
+                    curr_pose, np.zeros_like(self.container_offset)
+                )
+                twist += T.TransformTwist(shake_twist, shake_twist_transform)
             twist = T.numpy2twist(twist)
 
             self.robot_mg.send_cartesian_vel_trajectory(twist)
@@ -234,6 +264,7 @@ class Dispenser:
                     )
                 )
 
+        self.min_rot_vel = min(2 * MIN_ROT_VEL, self.min_rot_vel)
         # Retract the container to the starting position
         while True:
             iter_start_time = time.time()
@@ -256,10 +287,17 @@ class Dispenser:
             self.vel = np.clip(self.vel, self.min_rot_vel, self.max_rot_vel)
 
             raw_twist = self.vel * base_raw_twist
-            if self.ctrl_params["shaking"] and abs(shake_generator.last_v) > 1e-3:
-                raw_twist[:3] += shake_generator.get_twist()
+            if trans_shake_generator is not None and abs(trans_shake_generator.last_v) > 1e-3:
+                raw_twist[:3] += trans_shake_generator.get_twist()
             twist_transform = get_transform(curr_pose, self.container_offset)
             twist = T.TransformTwist(raw_twist, twist_transform)
+            if rot_shake_generator is not None and abs(rot_shake_generator.last_v) > 1e-3:
+                shake_twist = np.zeros_like(twist)
+                shake_twist[3:] += rot_shake_generator.get_twist()
+                shake_twist_transform = get_transform(
+                    curr_pose, np.zeros_like(self.container_offset)
+                )
+                twist += T.TransformTwist(shake_twist, shake_twist_transform)
             twist = T.numpy2twist(twist)
 
             self.robot_mg.send_cartesian_vel_trajectory(twist)

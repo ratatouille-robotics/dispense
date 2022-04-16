@@ -15,7 +15,7 @@ INGREDIENT = "peanuts"
 POURING_POSES = {
     "regular": {
         "corner": ([-0.410, -0.020, 0.500], [0.671, -0.613, -0.414, 0.048]),
-        "edge": ([-0.435, 0.250, 0.485], [0.852, -0.455, -0.205, 0.157]),
+        "edge": ([-0.500, 0.225, 0.500], [0.910, -0.324, -0.109, 0.235]),
     },
     "liquid": {
         "corner": ([-0.365, -0.03, 0.440], [0.633, -0.645, -0.421, 0.082])
@@ -46,7 +46,7 @@ def run():
             pre_dispense_pose,
             cartesian_path=True,
             orient_tolerance=0.05,
-            velocity_scaling=0.15,
+            velocity_scaling=0.3,
         )
 
         # Dispense ingredient
@@ -55,7 +55,7 @@ def run():
 
         # Return to home position
         assert robot_mg.go_to_joint_state(
-            HOME_JOINT, cartesian_path=True, velocity_scaling=0.15
+            HOME_JOINT, cartesian_path=True, velocity_scaling=0.3
         )
 
         # Get next entry from user
