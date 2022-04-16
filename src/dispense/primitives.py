@@ -22,12 +22,14 @@ class SinusoidalTrajectory:
         self.time_interval = time_interval
         self.t_step = 0
         self.pattern = pattern
+        self.last_v = 0
 
-    def get_twist(self):
+    def get_twist(self) -> np.ndarray:
         t = self.time_interval * self.t_step
         if self.pattern[int((t // self.t_period) % len(self.pattern))] == 1:
             v = (self.amplitude * self.omega) * np.sin(self.omega * t)
         else:
             v = 0
         self.t_step += 1
+        self.last_v = v
         return v * self.axis

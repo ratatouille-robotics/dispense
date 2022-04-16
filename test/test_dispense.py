@@ -14,11 +14,11 @@ INGREDIENT = "peanuts"
 
 POURING_POSES = {
     "regular": {
-        "corner": ([-0.425, -0.02, 0.5], [0.671, -0.613, -0.414, 0.048]),
+        "corner": ([-0.410, -0.020, 0.500], [0.671, -0.613, -0.414, 0.048]),
         "edge": ([-0.435, 0.250, 0.485], [0.852, -0.455, -0.205, 0.157]),
     },
     "liquid": {
-        "corner": ([-0.365, -0.02, 0.450], [0.671, -0.613, -0.414, 0.048])
+        "corner": ([-0.365, -0.03, 0.440], [0.633, -0.645, -0.421, 0.082])
     }
 }
 
@@ -51,7 +51,7 @@ def run():
 
         # Dispense ingredient
         dispenser = Dispenser(robot_mg)
-        dispenser.dispense_ingredient(params, float(input_wt))
+        _ = dispenser.dispense_ingredient(params, float(input_wt))
 
         # Return to home position
         assert robot_mg.go_to_joint_state(

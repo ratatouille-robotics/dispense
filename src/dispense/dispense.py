@@ -5,6 +5,7 @@ import time
 import numpy as np
 from datetime import datetime
 from pathlib import Path
+from numbers import Number
 from typing import Union, List
 from collections import deque
 
@@ -27,15 +28,16 @@ T_STEP = 0.01
 MAX_ROT_ACC = np.pi / 4
 MIN_ROT_ACC = -2 * MAX_ROT_ACC
 MAX_ROT_VEL = np.pi / 32
-MIN_ROT_VEL = -4 * MAX_ROT_VEL
+MIN_ROT_VEL = -2 * MAX_ROT_VEL
 
-ANGLE_LIMIT = (1 / 2) * np.pi
+ANGLE_LIMIT = {"regular": (1 / 3) * np.pi, "liquid": (2 / 5) * np.pi}
+
 DERIVATIVE_WINDOW = 0.1  # has to greater than equal to T_STEP
 
 # offsets from wrist_link_3
 CONTAINER_OFFSET = {
-    "regular": np.array([0.040, 0.030, 0.250], dtype=np.float),
-    "liquid": np.array([0.035, 0.120, 0.250], dtype=np.float)
+    "regular": np.array([0.040, 0.060, 0.250], dtype=np.float),
+    "liquid": np.array([0.035, 0.150, 0.250], dtype=np.float),
 }
 
 
@@ -55,7 +57,7 @@ def get_transform(curr_pose: Pose, container_offset: Union[List, np.ndarray]):
     return total_tranform
 
 
-def get_rotation(start_T, curr_T):
+def get_rotation(start_T: np.ndarray, curr_T: np.ndarray):
     start_T_inv = T.TransInv(start_T)
     disp = np.matmul(start_T_inv, curr_T)
     angle, axis, _ = rotation_from_matrix(disp)
@@ -63,7 +65,7 @@ def get_rotation(start_T, curr_T):
 
 
 class Dispenser:
-    def __init__(self, robot_mg):
+    def __init__(self, robot_mg: RobotMoveGroup) -> None:
         self.wt_subscriber = rospy.Subscriber(
             "/cooking_pot/weighing_scale", Weight, callback=self._weight_callback
         )
@@ -71,18 +73,22 @@ class Dispenser:
         self.robot_mg = robot_mg
         self._data = None
 
-    def _weight_callback(self, data):
+    def _weight_callback(self, data: float) -> None:
         self._data = data
 
-    def get_weight(self):
+    def get_weight(self) -> float:
         if self._data is None:
             rospy.logerr("No values received from the publisher")
             raise
         return self._data.weight
 
     def dispense_ingredient(
-        self, ingredient_params, target_wt, err_tolerance=None, log_data=True
-    ):
+        self,
+        ingredient_params: dict,
+        target_wt: Number,
+        err_tolerance: Union[Number, None] = None,
+        log_data: bool = True,
+    ) -> Number:
         # allow weighing scale measurement to be read
         rospy.sleep(0.2)
 
@@ -92,6 +98,7 @@ class Dispenser:
         )
         self.ctrl_params = ingredient_params["controller"]
         self.container_offset = CONTAINER_OFFSET[ingredient_params["container"]]
+        self.angle_limit = ANGLE_LIMIT[ingredient_params["container"]]
 
         # set run-specific params
         self.log_data = log_data
@@ -140,8 +147,9 @@ class Dispenser:
 
         if self.log_data:
             self.out_file.close()
+        return dispensed_wt
 
-    def run_pd_control(self, target_wt, err_tolerance):
+    def run_pd_control(self, target_wt: Number, err_tolerance: Number) -> bool:
         assert DERIVATIVE_WINDOW >= T_STEP
         start_T = T.pose2matrix(self.robot_mg.get_current_pose())
         if self.ctrl_params["shaking"]:
@@ -190,7 +198,7 @@ class Dispenser:
 
             if (
                 np.abs(get_rotation(start_T, T.pose2matrix(curr_pose))[0])
-                >= ANGLE_LIMIT
+                >= self.angle_limit
             ):
                 rospy.logerr(
                     "Container does not seem to have sufficient ingredient quantity..."
@@ -228,6 +236,8 @@ class Dispenser:
             self.vel = np.clip(self.vel, MIN_ROT_VEL, MAX_ROT_VEL)
 
             raw_twist = self.vel * base_raw_twist
+            if self.ctrl_params["shaking"] and abs(shake_generator.last_v) > 1e-3:
+                raw_twist[:3] += shake_generator.get_twist()
             twist_transform = get_transform(curr_pose, self.container_offset)
             twist = T.TransformTwist(raw_twist, twist_transform)
             twist = T.numpy2twist(twist)
