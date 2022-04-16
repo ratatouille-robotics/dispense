@@ -7,8 +7,8 @@ controller:
   morphology: 
   p_gain: 0.0025
   d_gain: 0.02
-  max_acc_scaling: 1
-  max_vel_scaling: 0.5
+  acc_scaling: 1
+  vel_scaling: 1
   rot_axis: [0.7071, 0, -0.7071]
   shaking: True
   shake_params:

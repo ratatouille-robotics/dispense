@@ -6,7 +6,7 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 from numbers import Number
-from typing import Union, List
+from typing import Union, List, Tuple
 from collections import deque
 
 import rospy
@@ -82,6 +82,12 @@ class Dispenser:
             raise
         return self._data.weight
 
+    def get_weight_fb(self) -> Tuple[float, bool]:
+        return (
+            self.get_weight(),
+            (rospy.Time.now() - self._data.header.stamp).to_sec() < 0.5,
+        )
+
     def dispense_ingredient(
         self,
         ingredient_params: dict,
@@ -97,8 +103,15 @@ class Dispenser:
             ingredient_params["tolerance"] if err_tolerance is None else err_tolerance
         )
         self.ctrl_params = ingredient_params["controller"]
+        self.container = ingredient_params["container"]
         self.container_offset = CONTAINER_OFFSET[ingredient_params["container"]]
         self.angle_limit = ANGLE_LIMIT[ingredient_params["container"]]
+
+        # set ingredient-specific limits
+        self.max_rot_vel = self.ctrl_params["vel_scaling"] * MAX_ROT_VEL
+        self.min_rot_vel = self.ctrl_params["vel_scaling"] * MIN_ROT_VEL
+        self.max_rot_acc = self.ctrl_params["acc_scaling"] * MAX_ROT_ACC
+        self.min_rot_acc = self.ctrl_params["vel_scaling"] * MIN_ROT_ACC 
 
         # set run-specific params
         self.log_data = log_data
@@ -165,11 +178,18 @@ class Dispenser:
 
         while error > err_tolerance:
             iter_start_time = time.time()
-            curr_wt = self.get_weight()
+            curr_wt, is_recent = self.get_weight_fb()
+            if not is_recent:
+                rospy.logerr(
+                    "Weight feedback from weighing scale is too delayed. Stopping dispensing process."
+                )
+                success = False
+                break
+
             error = target_wt - (curr_wt - self.start_wt)
             wt_fb_acc.append(curr_wt)
 
-            p_term = min(self.ctrl_params["p_gain"] * error, MAX_ROT_VEL)
+            p_term = min(self.ctrl_params["p_gain"] * error, self.max_rot_vel)
             d_term = (
                 self.ctrl_params["d_gain"]
                 * (min(wt_fb_acc) - max(wt_fb_acc))
@@ -178,11 +198,11 @@ class Dispenser:
             self.vel = p_term + d_term
 
             delta_vel = self.vel - self.last_vel
-            if np.sign(delta_vel) == 1 and delta_vel / T_STEP > MAX_ROT_ACC:
-                self.vel = self.last_vel + MAX_ROT_ACC * T_STEP
-            elif np.sign(delta_vel) == -1 and delta_vel / T_STEP < MIN_ROT_ACC:
-                self.vel = self.last_vel + MIN_ROT_ACC * T_STEP
-            self.vel = np.clip(self.vel, MIN_ROT_VEL, MAX_ROT_VEL)
+            if np.sign(delta_vel) == 1 and delta_vel / T_STEP > self.max_rot_acc:
+                self.vel = self.last_vel + self.max_rot_acc * T_STEP
+            elif np.sign(delta_vel) == -1 and delta_vel / T_STEP < self.min_rot_acc:
+                self.vel = self.last_vel + self.min_rot_acc * T_STEP
+            self.vel = np.clip(self.vel, self.min_rot_vel, self.max_rot_vel)
 
             raw_twist = self.vel * base_raw_twist
             if self.ctrl_params["shaking"]:
@@ -229,11 +249,11 @@ class Dispenser:
 
             self.vel = -2 * ang
             delta_vel = self.vel - self.last_vel
-            if np.sign(delta_vel) == 1 and delta_vel / T_STEP > MAX_ROT_ACC:
-                self.vel = self.last_vel + MAX_ROT_ACC * T_STEP
-            elif np.sign(delta_vel) == -1 and delta_vel / T_STEP < MIN_ROT_ACC:
-                self.vel = self.last_vel + MIN_ROT_ACC * T_STEP
-            self.vel = np.clip(self.vel, MIN_ROT_VEL, MAX_ROT_VEL)
+            if np.sign(delta_vel) == 1 and delta_vel / T_STEP > self.max_rot_acc:
+                self.vel = self.last_vel + self.max_rot_acc * T_STEP
+            elif np.sign(delta_vel) == -1 and delta_vel / T_STEP < self.min_rot_acc:
+                self.vel = self.last_vel + self.min_rot_acc * T_STEP
+            self.vel = np.clip(self.vel, self.min_rot_vel, self.max_rot_vel)
 
             raw_twist = self.vel * base_raw_twist
             if self.ctrl_params["shaking"] and abs(shake_generator.last_v) > 1e-3:
