@@ -31,7 +31,7 @@ MAX_ROT_VEL = np.pi / 32
 MIN_ROT_VEL = -2 * MAX_ROT_VEL
 
 ANGLE_LIMIT = {
-    "regular": {"corner": (1 / 3) * np.pi, "edge": (3 / 5) * np.pi},
+    "regular": {"corner": (1 / 3) * np.pi, "edge": (1 / 2) * np.pi},
     "liquid": {"corner": (2 / 5) * np.pi},
 }
 
@@ -95,22 +95,21 @@ class Dispenser:
         self,
         ingredient_params: dict,
         target_wt: Number,
-        err_tolerance: Union[Number, None] = None,
+        tolerance: Union[Number, None] = None,
         log_data: bool = True,
     ) -> Number:
         # allow weighing scale measurement to be read
         rospy.sleep(0.2)
 
         # set ingredient-specific params
-        err_tolerance = (
-            ingredient_params["tolerance"] if err_tolerance is None else err_tolerance
-        )
+        tolerance = ingredient_params["tolerance"] if tolerance is None else tolerance
         self.ctrl_params = ingredient_params["controller"]
         self.container = ingredient_params["container"]
         self.container_offset = CONTAINER_OFFSET[ingredient_params["container"]]
         self.angle_limit = ANGLE_LIMIT[self.container][
             ingredient_params["pouring_position"]
         ]
+        err_threshold = min(tolerance, self.ctrl_params["error_threshold"])
 
         # set ingredient-specific limits
         self.max_rot_vel = self.ctrl_params["vel_scaling"] * MAX_ROT_VEL
@@ -142,7 +141,7 @@ class Dispenser:
         # Dispense ingredient
         rospy.loginfo("Dispensing started...")
         if self.ctrl_params["type"] == "pd":
-            success = self.run_pd_control(target_wt, err_tolerance)
+            success = self.run_pd_control(target_wt, err_threshold)
 
         # Move robot to start position
         self.robot_mg.go_to_joint_state(
@@ -153,11 +152,11 @@ class Dispenser:
         )
 
         dispensed_wt = self.get_weight() - self.start_wt
-        if not success and (dispensed_wt - target_wt) <= err_tolerance:
-            rospy.loginfo(
-                f"Requested Qty: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
+        if (target_wt - dispensed_wt) > tolerance:
+            rospy.logerr(
+                f"Dispensed amount is below tolerance...Requested Qty: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
             )
-        elif (dispensed_wt - target_wt) > err_tolerance:
+        elif (dispensed_wt - target_wt) > tolerance:
             rospy.logerr(
                 f"Dispensed amount exceeded the tolerance...\nRequested Qty: {target_wt:0.2f}g \t Dispensed Qty: {dispensed_wt:0.2f}g"
             )
@@ -171,7 +170,7 @@ class Dispenser:
             self.out_file.close()
         return dispensed_wt
 
-    def run_pd_control(self, target_wt: Number, err_tolerance: Number) -> bool:
+    def run_pd_control(self, target_wt: Number, err_threshold: Number) -> bool:
         assert DERIVATIVE_WINDOW >= T_STEP
         start_T = T.pose2matrix(self.robot_mg.get_current_pose())
         if self.ctrl_params["shaking"]:
@@ -199,7 +198,7 @@ class Dispenser:
         )
         success = True
 
-        while error > err_tolerance:
+        while error > err_threshold:
             iter_start_time = time.time()
             curr_wt, is_recent = self.get_weight_fb()
             if not is_recent:
@@ -287,11 +286,17 @@ class Dispenser:
             self.vel = np.clip(self.vel, self.min_rot_vel, self.max_rot_vel)
 
             raw_twist = self.vel * base_raw_twist
-            if trans_shake_generator is not None and abs(trans_shake_generator.last_v) > 1e-3:
+            if (
+                trans_shake_generator is not None
+                and abs(trans_shake_generator.last_v) > 1e-3
+            ):
                 raw_twist[:3] += trans_shake_generator.get_twist()
             twist_transform = get_transform(curr_pose, self.container_offset)
             twist = T.TransformTwist(raw_twist, twist_transform)
-            if rot_shake_generator is not None and abs(rot_shake_generator.last_v) > 1e-3:
+            if (
+                rot_shake_generator is not None
+                and abs(rot_shake_generator.last_v) > 1e-3
+            ):
                 shake_twist = np.zeros_like(twist)
                 shake_twist[3:] += rot_shake_generator.get_twist()
                 shake_twist_transform = get_transform(

@@ -9,17 +9,15 @@ from motion.utils import make_pose
 
 from dispense.dispense import Dispenser
 
-HOME_JOINT = [-0.4412, -2.513700624505514, 2.5439, -3.1718, -1.1295, 3.1416]
+PRE_DISPENSE = [-1.2334, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
 INGREDIENT = "peanuts"
 
 POURING_POSES = {
     "regular": {
-        "corner": ([-0.410, -0.020, 0.500], [0.671, -0.613, -0.414, 0.048]),
-        "edge": ([-0.500, 0.225, 0.500], [0.910, -0.324, -0.109, 0.235]),
+        "corner": ([-0.300, -0.040, 0.510], [0.671, -0.613, -0.414, 0.048]),
+        "edge": ([-0.385, 0.240, 0.510], [0.910, -0.324, -0.109, 0.235]),
     },
-    "liquid": {
-        "corner": ([-0.365, -0.03, 0.440], [0.633, -0.645, -0.421, 0.082])
-    }
+    "liquid": {"corner": ([-0.265, -0.03, 0.460], [0.633, -0.645, -0.421, 0.082])},
 }
 
 
@@ -29,9 +27,9 @@ def run():
 
     input_wt = input("Enter desired ingredient quantity (in grams): ")
     while input_wt.isdigit() and float(input_wt) > 0 and float(input_wt) <= 1000:
-        # Move to home position
+        # Move to pre-dispense position
         assert robot_mg.go_to_joint_state(
-            HOME_JOINT, cartesian_path=True, velocity_scaling=0.15
+            PRE_DISPENSE, cartesian_path=True, velocity_scaling=0.15
         )
 
         # Load ingredient-specific params
@@ -53,9 +51,9 @@ def run():
         dispenser = Dispenser(robot_mg)
         _ = dispenser.dispense_ingredient(params, float(input_wt))
 
-        # Return to home position
+        # Return to pre-dispense position
         assert robot_mg.go_to_joint_state(
-            HOME_JOINT, cartesian_path=True, velocity_scaling=0.3
+            PRE_DISPENSE, cartesian_path=True, velocity_scaling=0.3
         )
 
         # Get next entry from user
