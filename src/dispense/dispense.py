@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 import os
-import yaml
 import time
 import numpy as np
-from datetime import datetime
-from pathlib import Path
 from numbers import Number
+from datetime import datetime
 from typing import Union, List, Tuple
 from collections import deque
 
@@ -37,33 +35,35 @@ ANGLE_LIMIT = {
 
 DERIVATIVE_WINDOW = 0.1  # has to greater than equal to T_STEP
 
-# offsets from wrist_link_3
+# offsets from wrist_link_3/flange/tool0
 CONTAINER_OFFSET = {
     "regular": np.array([0.040, 0.060, 0.250], dtype=np.float),
     "liquid": np.array([0.035, 0.150, 0.250], dtype=np.float),
 }
 
 
-def get_transform(curr_pose: Pose, container_offset: Union[List, np.ndarray]):
+def get_transform(reference_T_flange: Pose, container_offset: Union[List, np.ndarray]) -> np.ndarray:
     """
-    Get the transform from the robot base frame to the container
-    pouring edge/corner
+    Get the pose of the of the container pouring edge/corner with respect to a frame positioned at the 
+    flange point and oriented along the base frame
 
     Inputs:
-        curr_pose        - Current pose of the robot
-        container_offset - Offset of the robot pouring edge/corner
+        reference_T_flange     - Current pose of the robot
+        container_offset       - Offset of the container pouring edge/corner in the flange/tool0 frame
     """
-    curr_quat = T.quaternion2numpy(curr_pose.orientation)
-    quat_transform = quaternion_matrix(curr_quat)
-    container_transform = translation_matrix(container_offset)
-    total_tranform = np.matmul(quat_transform, container_transform)
-    return total_tranform
+    reference_T_flange_rotation = quaternion_matrix(T.quaternion2numpy(reference_T_flange.orientation))
+    flange_T_container_tip = translation_matrix(container_offset)
+    required_transform = np.matmul(reference_T_flange_rotation, flange_T_container_tip)
+    return required_transform
 
 
-def get_rotation(start_T: np.ndarray, curr_T: np.ndarray):
-    start_T_inv = T.TransInv(start_T)
-    disp = np.matmul(start_T_inv, curr_T)
-    angle, axis, _ = rotation_from_matrix(disp)
+def get_rotation(reference_T_start: np.ndarray, reference_T_end: np.ndarray) -> Tuple[float, np.ndarray]:
+    """
+    Find the rotational displacement between two poses
+    """
+    start_T_reference = T.TransInv(reference_T_start)
+    start_T_end = np.matmul(start_T_reference, reference_T_end)
+    angle, axis, _ = rotation_from_matrix(start_T_end)
     return angle, axis
 
 
@@ -106,9 +106,7 @@ class Dispenser:
         self.ctrl_params = ingredient_params["controller"]
         self.container = ingredient_params["container"]
         self.container_offset = CONTAINER_OFFSET[ingredient_params["container"]]
-        self.angle_limit = ANGLE_LIMIT[self.container][
-            ingredient_params["pouring_position"]
-        ]
+        self.angle_limit = ANGLE_LIMIT[self.container][ingredient_params["pouring_position"]]
         err_threshold = min(tolerance, self.ctrl_params["error_threshold"])
 
         # set ingredient-specific limits
@@ -141,7 +139,7 @@ class Dispenser:
         # Dispense ingredient
         rospy.loginfo("Dispensing started...")
         if self.ctrl_params["type"] == "pd":
-            success = self.run_pd_control(target_wt, err_threshold)
+            _ = self.run_pd_control(target_wt, err_threshold)
 
         # Move robot to start position
         self.robot_mg.go_to_joint_state(
