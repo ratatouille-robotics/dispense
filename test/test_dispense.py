@@ -9,8 +9,11 @@ from motion.utils import make_pose
 
 from dispense.dispense import Dispenser
 
-PRE_DISPENSE = [-1.2334, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
+
 INGREDIENT = "peanuts"
+
+
+PRE_DISPENSE = [-1.2334, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
 
 POURING_POSES = {
     "regular": {
@@ -18,15 +21,31 @@ POURING_POSES = {
         "edge": ([-0.385, 0.240, 0.510], [0.910, -0.324, -0.109, 0.235]),
     },
     "liquid": {"corner": ([-0.265, -0.03, 0.460], [0.633, -0.645, -0.421, 0.082])},
+    "powder": {"corner": ([-0.390, 0.100, 0.520], [0.749, 0.342, -0.520, -0.228])}
 }
+
+
+def acquire_input(message: str) -> float:
+    """
+    Get weight to be dispensed from the user
+    """
+    input_wt = input(message)
+
+    try:
+        input_wt = float(input_wt)
+    except ValueError:
+        input_wt = -1
+
+    return input_wt
 
 
 def run():
     rospy.init_node("ur5e_dispense_test")
     robot_mg = RobotMoveGroup()
 
-    input_wt = input("Enter desired ingredient quantity (in grams): ")
-    while input_wt.isdigit() and float(input_wt) > 0 and float(input_wt) <= 1000:
+    input_wt = acquire_input("Enter desired ingredient quantity (in grams): ")
+
+    while (input_wt) > 0 and float(input_wt) <= 1000:
         # Move to pre-dispense position
         assert robot_mg.go_to_joint_state(
             PRE_DISPENSE, cartesian_path=True, velocity_scaling=0.15
@@ -57,7 +76,7 @@ def run():
         )
 
         # Get next entry from user
-        input_wt = input("Enter desired ingredient quantity (in grams): ")
+        input_wt = acquire_input("Enter desired ingredient quantity (in grams): ")
 
 
 if __name__ == "__main__":
