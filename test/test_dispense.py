@@ -10,7 +10,7 @@ from motion.utils import make_pose
 from dispense.dispense import Dispenser
 
 
-INGREDIENT = "peanuts"
+INGREDIENT = "chickpea"
 
 
 PRE_DISPENSE = [-1.2334, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
