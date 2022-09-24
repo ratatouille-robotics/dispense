@@ -15,4 +15,4 @@ controller:
     axis: [1, 0, 0]
     amplitude: 0.005
     frequency: 4
-    pattern: [1, 0, 0, 0]
+    pattern: [0, 1, 0, 0]

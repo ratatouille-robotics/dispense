@@ -11,11 +11,6 @@ controller:
   vel_scaling: 1
   rot_axis: [1, 0, 0]
   shaking: True
-  # rot_shake_params:
-  #   axis: [0, 0, 1]
-  #   amplitude: 0.05
-  #   frequency: 4
-  #   pattern: [1]
   trans_shake_params:
     axis: [0, 1, 0]
     amplitude: 0.01

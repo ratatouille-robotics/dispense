@@ -15,6 +15,8 @@ from tf.transformations import (
     rotation_from_matrix,
 )
 
+
+from motion.utils import make_pose
 from motion.commander import RobotMoveGroup
 from sensor_interface.msg import Weight
 
@@ -34,14 +36,25 @@ ANGLE_LIMIT = {
 }
 
 DERIVATIVE_WINDOW = 0.1  # Time window over which to calculate derivative. Has to be greater than equal to T_STEP
-LOGICAL_TIMEOUT_WINDOW = 60  # Timeout window after which to stop dispening in logical control
+LOGICAL_TIMEOUT_WINDOW = 30  # Timeout window after which to stop dispening in logical control
 MIN_WT_DISPENSED = 0.25  # Minimum weight to dispense to avoid timeout
+WEIGHING_SCALE_FLUCTUATION = 0.3
 
 # offsets from wrist_link_3/flange/tool0
 CONTAINER_OFFSET = {
     "regular": np.array([0.040, 0.060, 0.250], dtype=np.float),
     "liquid": np.array([0.035, 0.150, 0.250], dtype=np.float),
     "powder": np.array([0.040, 0.060, 0.250], dtype=np.float),
+}
+
+
+POURING_POSES = {
+    "regular": {
+        "corner": ([-0.300, -0.030, 0.510], [0.671, -0.613, -0.414, 0.048]),
+        "edge": ([-0.385, 0.225, 0.520], [0.910, -0.324, -0.109, 0.235]),
+    },
+    "liquid": {"corner": ([-0.265, -0.03, 0.460], [0.633, -0.645, -0.421, 0.082])},
+    "powder": {"corner": ([-0.360, 0.070, 0.520], [0.749, 0.342, -0.520, -0.228])}
 }
 
 
@@ -102,8 +115,10 @@ class Dispenser:
         tolerance: Union[Number, None] = None,
         log_data: bool = True,
     ) -> Number:
-        # allow weighing scale measurement to be read
-        rospy.sleep(0.2)
+        # Record current robot position
+        robot_original_pose = self.robot_mg.get_current_pose()
+        # Send dummy velocity to avoid delayed motion start on first run
+        self.robot_mg.send_cartesian_vel_trajectory(T.numpy2twist(np.zeros(6, dtype=np.float)))
 
         # set ingredient-specific params
         tolerance = ingredient_params["tolerance"] if tolerance is None else tolerance
@@ -118,12 +133,22 @@ class Dispenser:
         self.max_rot_acc = self.ctrl_params["acc_scaling"] * MAX_ROT_ACC
         self.min_rot_acc = self.ctrl_params["vel_scaling"] * MIN_ROT_ACC
 
+        # Move to dispense-start position
+        pos, orient = POURING_POSES[ingredient_params["container"]][ingredient_params["pouring_position"]]
+        pre_dispense_pose = make_pose(pos, orient)
+        assert self.robot_mg.go_to_pose_goal(
+            pre_dispense_pose,
+            cartesian_path=True,
+            orient_tolerance=0.05,
+            velocity_scaling=0.75,
+            acc_scaling=0.5
+        )
+
         # set run-specific params
         self.log_data = log_data
         self.rate.sleep()
         self.start_wt = self.get_weight()
         self.vel = self.last_vel = 0
-        self.start_joint = self.robot_mg.get_current_joints()
 
         # setup logger
         if self.log_data:
@@ -147,12 +172,21 @@ class Dispenser:
         elif self.ctrl_params["type"] == "logical":
             _ = self.run_logical_control(target_wt, err_threshold)
 
-        # Move robot to start position
-        self.robot_mg.go_to_joint_state(
-            self.start_joint,
+        # Move to dispense-start position
+        assert self.robot_mg.go_to_pose_goal(
+            pre_dispense_pose,
             cartesian_path=True,
-            velocity_scaling=0.4,
-            acc_scaling=0.4,
+            orient_tolerance=0.05,
+            velocity_scaling=0.5,
+            acc_scaling=0.25
+        )
+
+        assert self.robot_mg.go_to_pose_goal(
+            robot_original_pose,
+            cartesian_path=True,
+            orient_tolerance=0.05,
+            velocity_scaling=0.75,
+            acc_scaling=0.5
         )
 
         dispensed_wt = self.get_weight() - self.start_wt
@@ -171,6 +205,7 @@ class Dispenser:
 
         if self.log_data:
             self.out_file.close()
+
         return dispensed_wt
 
     def run_pd_control(self, target_wt: Number, err_threshold: Number) -> bool:
@@ -200,7 +235,6 @@ class Dispenser:
         error = target_wt
         wt_fb_acc = deque(maxlen=int(DERIVATIVE_WINDOW / T_STEP) + 1)
         base_raw_twist = np.array([0, 0, 0] + self.ctrl_params["rot_axis"], dtype=np.float)
-        self.robot_mg.send_cartesian_vel_trajectory(T.numpy2twist(np.zeros_like(base_raw_twist)))
         success = True
 
         # Run controller as long as error is not within tolerance
@@ -315,6 +349,7 @@ class Dispenser:
                 )
 
         rospy.loginfo("PD control phase completed...")
+
         return success
 
     def run_logical_control(self, target_wt: Number, err_threshold: Number) -> bool:
@@ -334,7 +369,7 @@ class Dispenser:
         success = True
         dispening_history = deque(maxlen=int(LOGICAL_TIMEOUT_WINDOW / T_STEP))
 
-        while error > 0:
+        while error > max(err_threshold - WEIGHING_SCALE_FLUCTUATION, 0) or abs(shake_generator.last_v) > 1e-3:
             iter_start_time = time.time()
             curr_wt, is_recent = self.get_weight_fb()
             if not is_recent:
@@ -356,12 +391,10 @@ class Dispenser:
 
             self.robot_mg.send_cartesian_vel_trajectory(twist)
 
-            # print(max(dispening_history) - min(dispening_history))
-
              # Check if dispensing is still going on
             if (
                 dispening_history.maxlen == len(dispening_history) and 
-                np.mean(list(dispening_history)[-10:]) - np.mean(list(dispening_history)[:10]) < 0.5
+                np.mean(list(dispening_history)[-10:]) - np.mean(list(dispening_history)[:10]) < MIN_WT_DISPENSED
             ):
                 rospy.logerr("Container does not seem to have sufficient ingredient quantity...")
                 success = False
@@ -375,5 +408,8 @@ class Dispenser:
                     )
                 )
 
+        self.robot_mg.send_cartesian_vel_trajectory(T.numpy2twist(np.zeros(6, dtype=np.float)))
+
         rospy.loginfo("Logical control phase completed...")
+
         return success
