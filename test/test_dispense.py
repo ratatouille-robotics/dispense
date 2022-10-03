@@ -71,11 +71,6 @@ def run(log_results=False):
             csv_writer.writerow([num_runs, input_wt, np.round(dispensed_wt, 2), np.round(dispense_time, 1)])
             out_file.flush()
 
-        # Return to pre-dispense position
-        assert robot_mg.go_to_joint_state(
-            DISPENSE_HOME, cartesian_path=True, velocity_scaling=0.3
-        )
-
         # Get next entry from user
         input_wt = acquire_input("Enter desired ingredient quantity (in grams): ")
     
