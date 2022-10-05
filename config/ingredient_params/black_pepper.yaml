@@ -1,5 +1,5 @@
 name: salt
-tolerance: 0.3
+tolerance: 0.5
 container: powder
 pouring_position: corner
 controller:
@@ -12,8 +12,7 @@ controller:
   rot_axis: [0.7071, 0, -0.7071]
   shaking: True
   trans_shake_params:
-    axis: [1, 0, 0]
+    axis: [0, 1, 0]
     amplitude: 0.005
-    frequency: 5
+    frequency: 4
     pattern: [0, 1, 0, 0]
-    

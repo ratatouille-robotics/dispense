@@ -14,7 +14,7 @@ from motion.commander import RobotMoveGroup
 from dispense.dispense import Dispenser
 
 
-INGREDIENT = "peanuts"
+INGREDIENT = "salt"
 
 DISPENSE_HOME = [-1.2334, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
 LOG_DIR = "src/dispense/logs"
@@ -54,7 +54,7 @@ def run(log_results=False):
         num_runs += 1
         # Move to dispense-home position
         assert robot_mg.go_to_joint_state(
-            DISPENSE_HOME, cartesian_path=True, velocity_scaling=0.15
+            DISPENSE_HOME, cartesian_path=False, velocity_scaling=0.15
         )
 
         # Load ingredient-specific params
@@ -70,11 +70,6 @@ def run(log_results=False):
         if log_results:
             csv_writer.writerow([num_runs, input_wt, np.round(dispensed_wt, 2), np.round(dispense_time, 1)])
             out_file.flush()
-
-        # Return to pre-dispense position
-        assert robot_mg.go_to_joint_state(
-            DISPENSE_HOME, cartesian_path=True, velocity_scaling=0.3
-        )
 
         # Get next entry from user
         input_wt = acquire_input("Enter desired ingredient quantity (in grams): ")
