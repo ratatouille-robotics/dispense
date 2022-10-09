@@ -6,7 +6,7 @@ controller:
   type: pd
   error_threshold: 3.0
   p_gain: 0.01
-  d_gain: 0.25
+  d_gain: 0.1
   acc_scaling: 1.5
   vel_scaling: 3
   rot_axis: [0.7071, 0, -0.7071]
