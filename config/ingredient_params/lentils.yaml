@@ -1,6 +1,7 @@
 name: lentils
 tolerance: 5.0
-container: regular
+container: 
+  lid: none
 pouring_position: corner
 controller:
   type: pd

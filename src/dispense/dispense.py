@@ -32,7 +32,7 @@ MIN_ROT_VEL = -2 * MAX_ROT_VEL
 
 ANGLE_LIMIT = {
     "regular": {"corner": (1 / 3) * np.pi, "edge": (1 / 2) * np.pi},
-    "liquid": {"corner": (2 / 5) * np.pi}
+    "spout": {"corner": (2 / 5) * np.pi}
 }
 
 DERIVATIVE_WINDOW = 0.1  # Time window over which to calculate derivative. Has to be greater than equal to T_STEP
@@ -43,8 +43,8 @@ WEIGHING_SCALE_FLUCTUATION = 0.3
 # offsets from wrist_link_3/flange/tool0
 CONTAINER_OFFSET = {
     "regular": np.array([0.040, 0.060, 0.250], dtype=np.float),
-    "liquid": np.array([0.035, 0.150, 0.250], dtype=np.float),
-    "powder": np.array([0.040, 0.060, 0.250], dtype=np.float),
+    "spout": np.array([0.035, 0.150, 0.250], dtype=np.float),
+    "holes": np.array([0.040, 0.060, 0.250], dtype=np.float),
 }
 
 
@@ -53,8 +53,8 @@ POURING_POSES = {
         "corner": ([-0.300, -0.030, 0.510], [0.671, -0.613, -0.414, 0.048]),
         "edge": ([-0.385, 0.225, 0.520], [0.910, -0.324, -0.109, 0.235]),
     },
-    "liquid": {"corner": ([-0.265, -0.03, 0.460], [0.633, -0.645, -0.421, 0.082])},
-    "powder": {"corner": ([-0.360, 0.070, 0.520], [0.749, 0.342, -0.520, -0.228])}
+    "spout": {"corner": ([-0.265, -0.03, 0.460], [0.633, -0.645, -0.421, 0.082])},
+    "holes": {"corner": ([-0.360, 0.070, 0.520], [0.749, 0.342, -0.520, -0.228])}
 }
 
 
@@ -123,8 +123,10 @@ class Dispenser:
         # set ingredient-specific params
         tolerance = ingredient_params["tolerance"] if tolerance is None else tolerance
         self.ctrl_params = ingredient_params["controller"]
-        self.container = ingredient_params["container"]
-        self.container_offset = CONTAINER_OFFSET[ingredient_params["container"]]
+        self.lid_type = ingredient_params["container"]["lid"]
+        if self.lid_type in ["none", "slot"]:
+            self.lid_type = "regular"
+        self.container_offset = CONTAINER_OFFSET[self.lid_type]
         err_threshold = min(tolerance, self.ctrl_params["error_threshold"])
 
         # set ingredient-specific limits
@@ -134,7 +136,7 @@ class Dispenser:
         self.min_rot_acc = self.ctrl_params["vel_scaling"] * MIN_ROT_ACC
 
         # Move to dispense-start position
-        pos, orient = POURING_POSES[ingredient_params["container"]][ingredient_params["pouring_position"]]
+        pos, orient = POURING_POSES[self.lid_type][ingredient_params["pouring_position"]]
         pre_dispense_pose = make_pose(pos, orient)
         assert self.robot_mg.go_to_pose_goal(
             pre_dispense_pose,
@@ -167,7 +169,7 @@ class Dispenser:
         # Dispense ingredient
         rospy.loginfo("Dispensing started...")
         if self.ctrl_params["type"] == "pd":
-            self.angle_limit = ANGLE_LIMIT[self.container][ingredient_params["pouring_position"]]
+            self.angle_limit = ANGLE_LIMIT[self.lid_type][ingredient_params["pouring_position"]]
             _ = self.run_pd_control(target_wt, err_threshold)
         elif self.ctrl_params["type"] == "logical":
             _ = self.run_logical_control(target_wt, err_threshold)

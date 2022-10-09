@@ -1,6 +1,10 @@
 name: salt
 tolerance: 0.5
-container: powder
+container:
+  lid: holes
+  holes:
+    count: 3
+    diameter: 2
 pouring_position: corner
 controller:
   type: logical

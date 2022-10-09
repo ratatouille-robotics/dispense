@@ -1,6 +1,7 @@
 name: peanuts
 tolerance: 10.0
-container: regular
+container: 
+  lid: none
 pouring_position: corner
 controller:
   type: pd
