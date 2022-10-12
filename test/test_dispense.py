@@ -14,9 +14,9 @@ from motion.commander import RobotMoveGroup
 from dispense.dispense import Dispenser
 
 
-INGREDIENT = "peanuts"
+INGREDIENT = "salt"
 
-DISPENSE_HOME = [-1.2334, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
+DISPENSE_HOME = [-2.8034, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
 LOG_DIR = "src/dispense/logs"
 
 
@@ -54,9 +54,8 @@ def run(log_results=False):
         num_runs += 1
         # Move to dispense-home position
         assert robot_mg.go_to_joint_state(
-            DISPENSE_HOME, cartesian_path=True, velocity_scaling=0.15
+            DISPENSE_HOME, cartesian_path=False, velocity_scaling=0.15
         )
-
         # Load ingredient-specific params
         config_dir = pathlib.Path(__file__).parent.parent
         with open(config_dir / f"config/ingredient_params/{INGREDIENT}.yaml", "r") as f:

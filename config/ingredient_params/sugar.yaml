@@ -1,0 +1,22 @@
+name: sugar
+tolerance: 1
+container:
+  lid: none
+pouring_position: corner
+controller:
+  type: pd
+  error_threshold: 0.5
+  p_gain: 0.05
+  d_gain: 0.15
+  acc_scaling: 1.5
+  vel_scaling: 3
+  rot_axis: [0.7071, 0, -0.7071]
+  shaking: False
+  trans_shake_params:
+    axis: [0, 1, 0]
+    amplitude: 0.003
+    frequency: 4
+    pattern: [0, 1, 0, 0]
+
+# Drill bit: 5.5 HSS
+# 1 hole
