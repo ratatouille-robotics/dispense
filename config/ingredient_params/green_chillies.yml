@@ -1,14 +1,11 @@
-name: salt
-tolerance: 0.3
-container:
-  lid: holes
-  holes:
-    count: 3
-    diameter: 2
+name: green_chillies
+tolerance: 1.0
+container: 
+  lid: none
 pouring_position: corner
 controller:
-  type: logical
-  error_threshold: 0.25
+  type: pd
+  error_threshold: 6.0
   p_gain: 0.0025
   d_gain: 0.02
   acc_scaling: 1
@@ -17,6 +14,6 @@ controller:
   shaking: True
   trans_shake_params:
     axis: [1, 0, 0]
-    amplitude: 0.005
-    frequency: 5
-    pattern: [0, 1, 0, 0]
+    amplitude: 0.0075
+    frequency: 2.5
+    pattern: [1]
