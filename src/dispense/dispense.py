@@ -32,7 +32,7 @@ MAX_ROT_VEL = np.pi / 32
 MIN_ROT_VEL = -2 * MAX_ROT_VEL
 
 ANGLE_LIMIT = {
-    "regular": {"corner": (1 / 3) * np.pi, "edge": (1 / 2) * np.pi},
+    "regular": {"corner": (2 / 5) * np.pi, "edge": (1 / 2) * np.pi},
     "spout": {"corner": (2 / 5) * np.pi}
 }
 
@@ -47,15 +47,36 @@ CONTAINER_OFFSET = {
     "spout": np.array([0.035, 0.150, 0.250], dtype=np.float),
     "holes": np.array([0.040, 0.060, 0.250], dtype=np.float),
 }
-
+#TODO : After testing, clean up code by removing two of the 3 options below
+# new fine table
 POURING_POSES = {
     "regular": {
-        "corner": ([-0.300, -0.030, 0.510], [0.671, -0.613, -0.414, 0.048]),
-        "edge": ([-0.385, 0.225, 0.520], [0.910, -0.324, -0.109, 0.235]),
+        "corner": ([-0.03028, 0.2999, 0.4799], [-0.04147, 0.908, 0.32678, 0.2587]),
+        "edge": ([0.224685, 0.3851, 0.520], [0.4147, -0.8723, -0.24315, 0.089]),
     },
-    "spout": {"corner": ([-0.265, -0.03, 0.460], [0.633, -0.645, -0.421, 0.082])},
-    "holes": {"corner": ([-0.360, 0.070, 0.520], [0.749, 0.342, -0.520, -0.228])}
+    "spout": {"corner": ([-0.03022, 0.264, 0.460], [0.00817, 0.903, 0.3557, 0.2396])},
+    "holes": {"corner": ([0.0697, 0.36, 0.520], [-0.771, 0.287, 0.207, 0.529])}
 }
+
+# #new table
+# POURING_POSES = {
+#     "regular": {
+#         "corner": ([-0.03028, 0.2999, 0.5099], [-0.04147, 0.908, 0.32678, 0.2587]),
+#         "edge": ([0.224685, 0.3851, 0.520], [0.4147, -0.8723, -0.24315, 0.089]),
+#     },
+#     "spout": {"corner": ([-0.03022, 0.264, 0.460], [0.00817, 0.903, 0.3557, 0.2396])},
+#     "holes": {"corner": ([0.0697, 0.36, 0.520], [-0.771, 0.287, 0.207, 0.529])}
+# }
+
+#original table
+# POURING_POSES = {
+#     "regular": {
+#         "corner": ([-0.300, -0.030, 0.510], [0.671, -0.613, -0.414, 0.048]),
+#         "edge": ([-0.385, 0.225, 0.520], [0.910, -0.324, -0.109, 0.235]),
+#     },
+#     "spout": {"corner": ([-0.265, -0.03, 0.460], [0.633, -0.645, -0.421, 0.082])},
+#     "holes": {"corner": ([-0.360, 0.070, 0.520], [0.749, 0.342, -0.520, -0.228])}
+# }
 
 
 def get_transform(reference_T_flange: Pose, container_offset: Union[List, np.ndarray]) -> np.ndarray:
@@ -146,7 +167,12 @@ class Dispenser:
             velocity_scaling=0.75,
             acc_scaling=0.5
         )
-
+        # joint_state = self.robot_mg.get_current_joints()
+        # joint_state[0] -= 1.57
+        # self.robot_mg.go_to_joint_state(joint_state)
+        # sumthing = self.robot_mg.get_current_pose()
+        # rospy.loginfo(sumthing)
+        # return
         # set run-specific params
         self.log_data = log_data
         self.start_wt = self.get_weight()
