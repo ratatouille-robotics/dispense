@@ -1,4 +1,4 @@
-name: vinegar
+name: water
 tolerance: 5.0
 container:
   lid: spout
@@ -8,7 +8,7 @@ container:
 pouring_position: corner
 controller:
   type: pd
-  error_threshold: 4.0
+  error_threshold: 3.0
   p_gain: 0.012
   d_gain: 0.06
   acc_scaling: 1.5
