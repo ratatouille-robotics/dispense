@@ -107,7 +107,7 @@ class Dispenser:
     def __init__(self, robot_mg: RobotMoveGroup) -> None:
         # Setup comm with the weighing scale
         self.wt_subscriber = rospy.Subscriber(
-            "/cooking_pot/weighing_scale", Weight, callback=self._weight_callback
+            "/auto_cooking_station/weighing_scale", Weight, callback=self._weight_callback
         )
         self.rate = rospy.Rate(1 / T_STEP)
         self.robot_mg = robot_mg
