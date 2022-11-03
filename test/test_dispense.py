@@ -14,7 +14,7 @@ from motion.commander import RobotMoveGroup
 from dispense.dispense import Dispenser
 
 
-INGREDIENT = "peanuts"
+INGREDIENT = "pasta"
 #new table
 DISPENSE_HOME = [-2.8034, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
 
