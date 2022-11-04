@@ -38,7 +38,7 @@ ANGLE_LIMIT = {
 
 DERIVATIVE_WINDOW = 0.1  # Time window over which to calculate derivative. Has to be greater than equal to T_STEP
 LOGICAL_TIMEOUT_WINDOW = 30  # Timeout window after which to stop dispening in logical control
-MIN_WT_DISPENSED = 0.25  # Minimum weight to dispense to avoid timeout
+MIN_WT_DISPENSED = 0.1  # Minimum weight to dispense to avoid timeout
 WEIGHING_SCALE_FLUCTUATION = 0.3
 
 # offsets from wrist_link_3/flange/tool0
@@ -51,11 +51,11 @@ CONTAINER_OFFSET = {
 # new fine table
 POURING_POSES = {
     "regular": {
-        "corner": ([-0.03028, 0.2999, 0.4799], [-0.04147, 0.908, 0.32678, 0.2587]),
-        "edge": ([0.224685, 0.3851, 0.520], [0.4147, -0.8723, -0.24315, 0.089]),
+        "corner": ([-0.03028, 0.3199, 0.4599], [-0.04147, 0.908, 0.32678, 0.2587]),
+        "edge": ([0.154685, 0.3851, 0.500], [0.4147, -0.8723, -0.24315, 0.089]),
     },
-    "spout": {"corner": ([-0.03022, 0.264, 0.460], [0.00817, 0.903, 0.3557, 0.2396])},
-    "holes": {"corner": ([0.0697, 0.36, 0.520], [-0.771, 0.287, 0.207, 0.529])}
+    "spout": {"corner": ([-0.03022, 0.24, 0.440], [0.00817, 0.903, 0.3557, 0.2396])},
+    "holes": {"corner": ([0.0497, 0.33, 0.405], [-0.771, 0.287, 0.207, 0.529])}
 }
 
 # #new table
