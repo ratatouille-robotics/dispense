@@ -8,7 +8,7 @@ from collections import deque
 from typing import List, Optional, Tuple, Union
 
 import rospy
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Twist
 from tf.transformations import (
     quaternion_matrix,
     translation_matrix,
@@ -32,7 +32,7 @@ MAX_ROT_VEL = np.pi / 32
 MIN_ROT_VEL = -2 * MAX_ROT_VEL
 
 ANGLE_LIMIT = {
-    "regular": {"corner": (2 / 5) * np.pi, "edge": (1 / 2) * np.pi},
+    "regular": {"corner": (1 / 3) * np.pi, "edge": (1 / 2) * np.pi},
     "spout": {"corner": (2 / 5) * np.pi}
 }
 
@@ -104,6 +104,8 @@ def get_rotation(reference_T_start: np.ndarray, reference_T_end: np.ndarray) -> 
     return angle, axis
 
 
+    
+
 class Dispenser:
     def __init__(self, robot_mg: RobotMoveGroup) -> None:
         # Setup comm with the weighing scale
@@ -113,6 +115,7 @@ class Dispenser:
         self.rate = rospy.Rate(1 / CONTROL_STEP)
         self.robot_mg = robot_mg
         self._w_data = None
+        self.robot_original_pose = None
 
     def _weight_callback(self, data: float) -> None:
         self._w_data = data
@@ -128,6 +131,17 @@ class Dispenser:
             self.get_weight(),
             (rospy.Time.now() - self._w_data.header.stamp).to_sec() < 0.5,
         )
+    def myhook(self):
+        rospy.logerr("shutdown time!")
+        twist = Twist()
+        self.robot_mg.send_cartesian_vel_trajectory(twist)
+        self.robot_mg.go_to_pose_goal(
+            self.robot_original_pose,
+            cartesian_path=True,
+            orient_tolerance=0.05,
+            velocity_scaling=0.75,
+            acc_scaling=0.5
+        )
 
     def dispense_ingredient(
         self,
@@ -138,6 +152,8 @@ class Dispenser:
         ingredient_wt_start: Optional[float] = None,
     ) -> Number:
         # Record current robot position
+        rospy.on_shutdown(self.myhook)
+        self.robot_original_pose = self.robot_mg.get_current_pose()
         robot_original_pose = self.robot_mg.get_current_pose()
         # Send dummy velocity to avoid delayed motion start on first run
         self.robot_mg.send_cartesian_vel_trajectory(T.numpy2twist(np.zeros(6, dtype=np.float)))
@@ -160,13 +176,16 @@ class Dispenser:
         # Move to dispense-start position
         pos, orient = POURING_POSES[self.lid_type][ingredient_params["pouring_position"]]
         pre_dispense_pose = make_pose(pos, orient)
-        assert self.robot_mg.go_to_pose_goal(
+        error_check = self.robot_mg.go_to_pose_goal(
             pre_dispense_pose,
             cartesian_path=True,
             orient_tolerance=0.05,
             velocity_scaling=0.75,
             acc_scaling=0.5
         )
+        if not error_check:
+            rospy.logerr("handling some assert error")
+            return 0
         # joint_state = self.robot_mg.get_current_joints()
         # joint_state[0] -= 1.57
         # self.robot_mg.go_to_joint_state(joint_state)
@@ -202,21 +221,27 @@ class Dispenser:
             _ = self.run_logical_control(target_wt, err_threshold)
 
         # Move to dispense-start position
-        assert self.robot_mg.go_to_pose_goal(
+        error_check =  self.robot_mg.go_to_pose_goal(
             pre_dispense_pose,
             cartesian_path=True,
             orient_tolerance=0.05,
             velocity_scaling=0.5,
             acc_scaling=0.25
         )
+        if not error_check:
+            rospy.logerr("handling some assert error")
+            return self.get_weight() - self.start_wt
 
-        assert self.robot_mg.go_to_pose_goal(
+        error_check =  self.robot_mg.go_to_pose_goal(
             robot_original_pose,
             cartesian_path=True,
             orient_tolerance=0.05,
             velocity_scaling=0.75,
             acc_scaling=0.5
         )
+        if not error_check:
+            rospy.logerr("handling some assert error")
+            return self.get_weight() - self.start_wt
 
         dispensed_wt = self.get_weight() - self.start_wt
         if (target_wt - dispensed_wt) > tolerance:
@@ -269,7 +294,10 @@ class Dispenser:
         """
         Run the PD controller
         """
-        assert DERIVATIVE_WINDOW >= T_STEP
+        error_check =  DERIVATIVE_WINDOW >= T_STEP
+        if not error_check:
+            rospy.logerr("handling some assert error")
+            return 0
         start_T = T.pose2matrix(self.robot_mg.get_current_pose())
 
         # Setup shake generator
@@ -287,7 +315,8 @@ class Dispenser:
         success = True
 
         # Run controller as long as error is not within tolerance
-        while error > err_threshold:
+        while (not rospy.is_shutdown()) and (error > err_threshold):
+        # while error > err_threshold
             iter_start_time = time.time()
             curr_wt, is_recent = self.get_weight_fb()
             if not is_recent:
@@ -305,6 +334,13 @@ class Dispenser:
             p_term = min(p_term, self.max_rot_vel)  # clamp p-term
             d_term = self.ctrl_params["d_gain"] * error_rate
             pid_vel = p_term + d_term
+
+            # Check if trying to go down near starting position
+            curr_pose = self.robot_mg.get_current_pose()
+            if (np.abs(get_rotation(start_T, T.pose2matrix(curr_pose))[0]) <= 0.1):            
+                if(pid_vel < 0):
+                    rospy.logerr("Trying to go down further")
+                    pid_vel = 0
 
             # Clamp velocity based on acceleration and velocity limits
             max_vel = self.last_vel + MAX_ROT_ACC * T_STEP
@@ -345,7 +381,9 @@ class Dispenser:
 
         self.min_rot_vel = min(2 * MIN_ROT_VEL, self.min_rot_vel)
         # Retract the container to the starting position
-        while True:
+        
+        while (not rospy.is_shutdown()):
+        # while True:
             iter_start_time = time.time()
             curr_wt = self.get_weight()
             error = target_wt - (curr_wt - self.start_wt)
@@ -380,7 +418,7 @@ class Dispenser:
                 )
 
         rospy.loginfo("PD control phase completed...")
-
+        
         return success
 
     def run_logical_control(self, target_wt: Number, err_threshold: Number) -> bool:
@@ -400,7 +438,8 @@ class Dispenser:
         success = True
         dispening_history = deque(maxlen=int(LOGICAL_TIMEOUT_WINDOW / CONTROL_STEP))
 
-        while error > max(err_threshold - WEIGHING_SCALE_FLUCTUATION, 0) or abs(shake_generator.last_v) > 1e-3:
+        while (not rospy.is_shutdown()) and (error > max(err_threshold - WEIGHING_SCALE_FLUCTUATION, 0) or abs(shake_generator.last_v) > 1e-3):
+        # while error > max(err_threshold - WEIGHING_SCALE_FLUCTUATION, 0) or abs(shake_generator.last_v) > 1e-3:
             iter_start_time = time.time()
             curr_wt, is_recent = self.get_weight_fb()
             if not is_recent:
