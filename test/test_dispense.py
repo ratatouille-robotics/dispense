@@ -7,21 +7,29 @@ import time
 import rospy
 import pathlib
 import numpy as np
-
+import signal
 from datetime import datetime
 
 from motion.commander import RobotMoveGroup
 from dispense.dispense import Dispenser
 
 
-INGREDIENT = "marinara"
+INGREDIENT = "salt"
 #new table
 DISPENSE_HOME = [-2.8034, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
 
 #original table
 # DISPENSE_HOME = [-1.2334, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
 LOG_DIR = "src/dispense/logs"
+class GracefulKiller:
+  kill_now = False
+  def __init__(self):
+    signal.signal(signal.SIGINT, self.exit_gracefully)
+    signal.signal(signal.SIGTERM, self.exit_gracefully)
 
+  def exit_gracefully(self, *args):
+    rospy.logerr("CTRL C detected in test dispense")
+    self.kill_now = True
 
 def acquire_input(message: str) -> float:
     """
@@ -38,9 +46,10 @@ def acquire_input(message: str) -> float:
 
 
 def run(log_results=False):
-    rospy.init_node("ur5e_dispense_test")
+    killer = GracefulKiller()
+    rospy.init_node("ur5e_dispense_test", disable_signals=True)
     robot_mg = RobotMoveGroup()
-    dispenser = Dispenser(robot_mg)
+    dispenser = Dispenser(robot_mg, killer)
     num_runs = 0
 
     if log_results:
@@ -51,9 +60,13 @@ def run(log_results=False):
         csv_writer = csv.writer(out_file)
         csv_writer.writerow(["S.No", "Requested", "Dispensed", "Time Taken"])
 
-    input_wt = acquire_input("Enter desired ingredient quantity (in grams): ")
+    # input_wt = acquire_input("Enter desired ingredient quantity (in grams): ")
 
-    while (input_wt) > 0 and float(input_wt) <= 1000:
+    while (not rospy.is_shutdown()):
+        # Get next entry from user
+        input_wt = acquire_input("Enter desired ingredient quantity (in grams): ")
+        if not ((input_wt) > 0 and float(input_wt) <= 1000):
+            break
         num_runs += 1
         # Move to dispense-home position
         assert robot_mg.go_to_joint_state(
@@ -74,15 +87,15 @@ def run(log_results=False):
             csv_writer.writerow([num_runs, input_wt, np.round(dispensed_wt, 2), np.round(dispense_time, 1)])
             out_file.flush()
 
-        # Get next entry from user
-        input_wt = acquire_input("Enter desired ingredient quantity (in grams): ")
-    
+        
     if log_results:
         out_file.close()
 
 
 if __name__ == "__main__":
-    try:
-        run(log_results=False)
-    except rospy.ROSInterruptException:
-        sys.exit(1)
+    run(log_results=False)
+    rospy.signal_shutdown("CTRL C Detected by ROS")
+    # try:
+    #     run(log_results=False)
+    # except rospy.ROSInterruptException:
+    #     sys.exit(1)

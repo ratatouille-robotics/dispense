@@ -6,7 +6,7 @@ from numbers import Number
 from datetime import datetime
 from typing import Union, List, Tuple
 from collections import deque
-
+import signal
 import rospy
 from geometry_msgs.msg import Pose, Twist
 from tf.transformations import (
@@ -102,11 +102,19 @@ def get_rotation(reference_T_start: np.ndarray, reference_T_end: np.ndarray) -> 
     angle, axis, _ = rotation_from_matrix(start_T_end)
     return angle, axis
 
+# class GracefulKiller:
+#   kill_now = False
+#   def __init__(self):
+#     signal.signal(signal.SIGINT, self.exit_gracefully)
+#     signal.signal(signal.SIGTERM, self.exit_gracefully)
 
+#   def exit_gracefully(self, *args):
+#     rospy.logerr("CTRL C detected in Dispense Class")
+#     self.kill_now = True
     
 
 class Dispenser:
-    def __init__(self, robot_mg: RobotMoveGroup) -> None:
+    def __init__(self, robot_mg: RobotMoveGroup, killer) -> None:
         # Setup comm with the weighing scale
         self.wt_subscriber = rospy.Subscriber(
             "/auto_cooking_station/weighing_scale", Weight, callback=self._weight_callback
@@ -115,7 +123,7 @@ class Dispenser:
         self.robot_mg = robot_mg
         self._data = None
         self.robot_original_pose = None
-
+        self.killer = killer
     def _weight_callback(self, data: float) -> None:
         self._data = data
 
@@ -150,7 +158,7 @@ class Dispenser:
         log_data: bool = True,
     ) -> Number:
         # Record current robot position
-        rospy.on_shutdown(self.myhook)
+        # rospy.on_shutdown(self.myhook)
         self.robot_original_pose = self.robot_mg.get_current_pose()
         robot_original_pose = self.robot_mg.get_current_pose()
         # Send dummy velocity to avoid delayed motion start on first run
@@ -257,7 +265,8 @@ class Dispenser:
 
         if self.log_data:
             self.out_file.close()
-
+        if self.killer.kill_now:
+            rospy.signal_shutdown("killed while dispensing")
         return dispensed_wt
 
     def run_pd_control(self, target_wt: Number, err_threshold: Number) -> bool:
@@ -293,7 +302,7 @@ class Dispenser:
         success = True
 
         # Run controller as long as error is not within tolerance
-        while (not rospy.is_shutdown()) and (error > err_threshold):
+        while (not rospy.is_shutdown()) and (error > err_threshold) and (not self.killer.kill_now):
         # while error > err_threshold
             iter_start_time = time.time()
             curr_wt, is_recent = self.get_weight_fb()
@@ -364,7 +373,7 @@ class Dispenser:
         self.min_rot_vel = min(2 * MIN_ROT_VEL, self.min_rot_vel)
         # Retract the container to the starting position
         
-        while (not rospy.is_shutdown()):
+        while (not rospy.is_shutdown()) and (not self.killer.kill_now):
         # while True:
             iter_start_time = time.time()
             curr_wt = self.get_weight()
@@ -432,7 +441,7 @@ class Dispenser:
         success = True
         dispening_history = deque(maxlen=int(LOGICAL_TIMEOUT_WINDOW / T_STEP))
         
-        while (not rospy.is_shutdown()) and (error > max(err_threshold - WEIGHING_SCALE_FLUCTUATION, 0) or abs(shake_generator.last_v) > 1e-3):
+        while (not self.killer.kill_now) and (not rospy.is_shutdown()) and (error > max(err_threshold - WEIGHING_SCALE_FLUCTUATION, 0) or abs(shake_generator.last_v) > 1e-3):
         # while error > max(err_threshold - WEIGHING_SCALE_FLUCTUATION, 0) or abs(shake_generator.last_v) > 1e-3:
             iter_start_time = time.time()
             curr_wt, is_recent = self.get_weight_fb()
@@ -456,13 +465,13 @@ class Dispenser:
             self.robot_mg.send_cartesian_vel_trajectory(twist)
 
              # Check if dispensing is still going on
-            if (
-                dispening_history.maxlen == len(dispening_history) and 
-                np.mean(list(dispening_history)[-10:]) - np.mean(list(dispening_history)[:10]) < MIN_WT_DISPENSED
-            ):
-                rospy.logerr("Container does not seem to have sufficient ingredient quantity...")
-                success = False
-                break
+            # if (
+            #     dispening_history.maxlen == len(dispening_history) and 
+            #     np.mean(list(dispening_history)[-10:]) - np.mean(list(dispening_history)[:10]) < MIN_WT_DISPENSED
+            # ):
+            #     rospy.logerr("Container does not seem to have sufficient ingredient quantity...")
+            #     success = False
+            #     break
 
             self.rate.sleep()
             if self.log_data:
