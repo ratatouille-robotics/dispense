@@ -8,6 +8,7 @@ from collections import deque
 from typing import List, Optional, Tuple, Union
 
 import signal
+import yaml
 import rospy
 from geometry_msgs.msg import Pose, Twist
 from tf.transformations import (
@@ -16,6 +17,7 @@ from tf.transformations import (
     rotation_from_matrix,
 )
 
+import pathlib
 from motion.utils import make_pose
 from motion.commander import RobotMoveGroup
 from sensor_interface.msg import Weight
@@ -140,21 +142,10 @@ class Dispenser:
             self.get_weight(),
             (rospy.Time.now() - self._w_data.header.stamp).to_sec() < 0.5,
         )
-    def myhook(self):
-        rospy.logerr("shutdown time!")
-        twist = Twist()
-        self.robot_mg.send_cartesian_vel_trajectory(twist)
-        self.robot_mg.go_to_pose_goal(
-            self.robot_original_pose,
-            cartesian_path=True,
-            orient_tolerance=0.05,
-            velocity_scaling=0.75,
-            acc_scaling=0.5
-        )
 
     def dispense_ingredient(
         self,
-        ingredient_params: dict,
+        ingredient_name: str,
         target_wt: Number,
         tolerance: Union[Number, None] = None,
         log_data: bool = True,
@@ -166,6 +157,11 @@ class Dispenser:
         robot_original_pose = self.robot_mg.get_current_pose()
         # Send dummy velocity to avoid delayed motion start on first run
         self.robot_mg.send_cartesian_vel_trajectory(T.numpy2twist(np.zeros(6, dtype=np.float)))
+        
+        # Load ingredient-specific params
+        config_dir = pathlib.Path(__file__).parent.parent.parent
+        with open(config_dir / f"config/ingredient_params/{ingredient_name}.yaml", "r") as f:
+            ingredient_params = yaml.safe_load(f)
 
         # set ingredient-specific params
         tolerance = ingredient_params["tolerance"] if tolerance is None else tolerance
@@ -269,6 +265,7 @@ class Dispenser:
         if self.log_data:
             self.out_file.close()
         if self.killer.kill_now:
+            rospy.logerr("killed while dispensing")
             rospy.signal_shutdown("killed while dispensing")
         return dispensed_wt
 

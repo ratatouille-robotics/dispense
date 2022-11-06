@@ -74,13 +74,13 @@ def run(log_results=False):
         )
     
         # Load ingredient-specific params
-        config_dir = pathlib.Path(__file__).parent.parent
-        with open(config_dir / f"config/ingredient_params/{INGREDIENT}.yaml", "r") as f:
-            params = yaml.safe_load(f)
+        # config_dir = pathlib.Path(__file__).parent.parent
+        # with open(config_dir / f"config/ingredient_params/{INGREDIENT}.yaml", "r") as f:
+        #     params = yaml.safe_load(f)
 
         # Dispense ingredient
         start_time = time.time()
-        dispensed_wt = dispenser.dispense_ingredient(params, float(input_wt))
+        dispensed_wt = dispenser.dispense_ingredient(INGREDIENT, float(input_wt))
         dispense_time = time.time() - start_time
 
         if log_results:
