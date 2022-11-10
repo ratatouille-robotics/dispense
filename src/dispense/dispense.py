@@ -460,14 +460,14 @@ class Dispenser:
 
             self.robot_mg.send_cartesian_vel_trajectory(twist)
 
-             # Check if dispensing is still going on
-            # if (
-            #     dispening_history.maxlen == len(dispening_history) and 
-            #     np.mean(list(dispening_history)[-10:]) - np.mean(list(dispening_history)[:10]) < MIN_WT_DISPENSED
-            # ):
-            #     rospy.logerr("Container does not seem to have sufficient ingredient quantity...")
-            #     success = False
-            #     break
+            #  Check if dispensing is still going on
+            if (
+                dispening_history.maxlen == len(dispening_history) and 
+                np.mean(list(dispening_history)[-10:]) - np.mean(list(dispening_history)[:10]) < MIN_WT_DISPENSED
+            ):
+                rospy.logerr("Container does not seem to have sufficient ingredient quantity...")
+                success = False
+                break
 
             self.rate.sleep()
             if self.log_data:
