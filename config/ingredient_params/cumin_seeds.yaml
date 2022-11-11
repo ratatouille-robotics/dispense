@@ -1,5 +1,5 @@
 name: cumin_seeds
-tolerance: 10.0
+tolerance: 1.0
 container: 
   lid: none
 pouring_position: corner
@@ -17,3 +17,4 @@ controller:
     amplitude: 0.0075
     frequency: 2.5
     pattern: [1]
+#lid same as oregano, harshit disgrees
