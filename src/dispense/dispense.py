@@ -32,7 +32,8 @@ MAX_ROT_VEL = np.pi / 32
 MIN_ROT_VEL = -2 * MAX_ROT_VEL
 
 ANGLE_LIMIT = {
-    "regular": {"corner": (1 / 3) * np.pi, "edge": (1 / 2) * np.pi},
+    "regular": {"corner": (2 / 5) * np.pi, "edge": (1 / 2) * np.pi},
+    # "regular": {"corner": (1 / 3) * np.pi, "edge": (1 / 2) * np.pi},
     "spout": {"corner": (2 / 5) * np.pi}
 }
 

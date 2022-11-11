@@ -1,5 +1,5 @@
 name: salt
-tolerance: 0.3
+tolerance: 1
 container:
   lid: holes
   holes:
@@ -8,7 +8,7 @@ container:
 pouring_position: corner
 controller:
   type: logical
-  error_threshold: 0.25
+  error_threshold: 0.5
   p_gain: 0.0025
   d_gain: 0.02
   acc_scaling: 1
@@ -17,6 +17,6 @@ controller:
   shaking: True
   trans_shake_params:
     axis: [1, 0, 0]
-    amplitude: 0.005
-    frequency: 5
+    amplitude: 0.007
+    frequency: 4
     pattern: [0, 1, 0, 0]
