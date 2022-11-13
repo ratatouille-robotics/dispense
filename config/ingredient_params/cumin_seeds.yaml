@@ -7,7 +7,7 @@ controller:
   type: pd
   error_threshold: 4.0
   p_gain: 0.018
-  d_gain: 0.05
+  d_gain: 0.1
   acc_scaling: 1
   vel_scaling: 1
   rot_axis: [0.7071, 0, -0.7071]
@@ -17,4 +17,4 @@ controller:
     amplitude: 0.0075
     frequency: 2.5
     pattern: [1]
-#lid same as oregano, harshit disgrees
+#lid irregular and big
