@@ -14,7 +14,7 @@ from motion.commander import RobotMoveGroup
 from dispense.dispense import Dispenser
 
 
-INGREDIENT = "salt"
+INGREDIENT = "paneer"
 #new table
 DISPENSE_HOME = [-2.8034, -2.2579, 2.1997, -2.6269, -0.3113, 2.6590]
 
@@ -70,7 +70,7 @@ def run(log_results=False):
         num_runs += 1
         # Move to dispense-home position
         assert robot_mg.go_to_joint_state(
-            DISPENSE_HOME, cartesian_path=False, velocity_scaling=0.15
+            DISPENSE_HOME, cartesian_path=False, velocity_scaling=0.15, tolerance = 0.01
         )
     
         # Load ingredient-specific params
