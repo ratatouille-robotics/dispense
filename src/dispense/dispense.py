@@ -23,7 +23,7 @@ from sensor_interface.msg import Weight
 
 import dispense.transforms as T
 import dispense.primitives as prim
-
+from statistics import median
 
 T_STEP = 0.005
 MAX_ROT_ACC = np.pi / 4
@@ -175,6 +175,12 @@ class Dispenser:
         self.max_rot_acc = self.ctrl_params["acc_scaling"] * MAX_ROT_ACC
         self.min_rot_acc = self.ctrl_params["vel_scaling"] * MIN_ROT_ACC
 
+        avg_wt = [0.,0.,0.,0.,0.]
+        for i in range(5):
+            avg_wt[i] = self.get_weight()
+            time.sleep(0.6)
+        rospy.loginfo(avg_wt)
+
         # Move to dispense-start position
         pos, orient = POURING_POSES[self.lid_type][ingredient_params["pouring_position"]]
         pre_dispense_pose = make_pose(pos, orient)
@@ -197,7 +203,10 @@ class Dispenser:
         # set run-specific params
         self.log_data = log_data
         self.rate.sleep()
-        self.start_wt = self.get_weight()
+        
+        # self.start_wt = self.get_weight()
+        self.start_wt = median(avg_wt)
+        rospy.loginfo(self.start_wt)
         self.vel = self.last_vel = 0
 
         # setup logger
@@ -448,6 +457,7 @@ class Dispenser:
                 break
 
             error = target_wt - (curr_wt - self.start_wt)
+            # rospy.loginfo(error)
             wt_fb_acc.append(curr_wt)
             dispening_history.append(curr_wt)
 
@@ -461,14 +471,14 @@ class Dispenser:
 
             self.robot_mg.send_cartesian_vel_trajectory(twist)
 
-            #  Check if dispensing is still going on
-            if (
-                dispening_history.maxlen == len(dispening_history) and 
-                np.mean(list(dispening_history)[-10:]) - np.mean(list(dispening_history)[:10]) < MIN_WT_DISPENSED
-            ):
-                rospy.logerr("Container does not seem to have sufficient ingredient quantity...")
-                success = False
-                break
+            # #  Check if dispensing is still going on
+            # if (
+            #     dispening_history.maxlen == len(dispening_history) and 
+            #     np.mean(list(dispening_history)[-10:]) - np.mean(list(dispening_history)[:10]) < MIN_WT_DISPENSED
+            # ):
+            #     rospy.logerr("Container does not seem to have sufficient ingredient quantity...")
+            #     success = False
+            #     break
 
             self.rate.sleep()
             if self.log_data:

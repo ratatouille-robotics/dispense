@@ -1,5 +1,5 @@
 name: cheese
-tolerance: 10.0
+tolerance: 15.0
 container:
   lid: slot
   slot:
