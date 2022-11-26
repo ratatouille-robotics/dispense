@@ -1,5 +1,5 @@
 name: garlic_powder
-tolerance: 1
+tolerance: 2 #1
 container:
   lid: holes
   holes:

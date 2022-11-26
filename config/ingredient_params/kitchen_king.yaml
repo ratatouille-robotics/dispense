@@ -1,5 +1,5 @@
 name: kitchen_king
-tolerance: 1
+tolerance: 1.5
 container:
   lid: holes
   holes:
