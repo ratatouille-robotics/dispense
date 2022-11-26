@@ -1,5 +1,5 @@
 name: ginger_garlic_paste
-tolerance: 8
+tolerance: 10
 container:
   lid: holes
   holes:
