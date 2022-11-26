@@ -4,8 +4,8 @@ import time
 import numpy as np
 from numbers import Number
 from datetime import datetime
-from typing import Union, List, Tuple
 from collections import deque
+from typing import List, Optional, Tuple, Union
 
 import rospy
 from geometry_msgs.msg import Pose
@@ -15,7 +15,6 @@ from tf.transformations import (
     rotation_from_matrix,
 )
 
-
 from motion.utils import make_pose
 from motion.commander import RobotMoveGroup
 from sensor_interface.msg import Weight
@@ -24,7 +23,9 @@ import dispense.transforms as T
 import dispense.primitives as prim
 
 
-T_STEP = 0.005
+T_STEP = 0.1
+CONTROL_STEP = 0.005
+
 MAX_ROT_ACC = np.pi / 4
 MIN_ROT_ACC = -2 * MAX_ROT_ACC
 MAX_ROT_VEL = np.pi / 32
@@ -46,7 +47,6 @@ CONTAINER_OFFSET = {
     "spout": np.array([0.035, 0.150, 0.250], dtype=np.float),
     "holes": np.array([0.040, 0.060, 0.250], dtype=np.float),
 }
-
 
 POURING_POSES = {
     "regular": {
@@ -94,13 +94,13 @@ class Dispenser:
         self._data = None
 
     def _weight_callback(self, data: float) -> None:
-        self._data = data
+        self._w_data = data
 
     def get_weight(self) -> float:
-        if self._data is None:
+        if self._w_data is None:
             rospy.logerr("No values received from the publisher")
             raise
-        return self._data.weight
+        return self._w_data.weight
 
     def get_weight_fb(self) -> Tuple[float, bool]:
         return (
@@ -114,6 +114,7 @@ class Dispenser:
         target_wt: Number,
         tolerance: Union[Number, None] = None,
         log_data: bool = True,
+        ingredient_wt_start: Optional[float] = None,
     ) -> Number:
         # Record current robot position
         robot_original_pose = self.robot_mg.get_current_pose()
@@ -133,7 +134,7 @@ class Dispenser:
         self.max_rot_vel = self.ctrl_params["vel_scaling"] * MAX_ROT_VEL
         self.min_rot_vel = self.ctrl_params["vel_scaling"] * MIN_ROT_VEL
         self.max_rot_acc = self.ctrl_params["acc_scaling"] * MAX_ROT_ACC
-        self.min_rot_acc = self.ctrl_params["vel_scaling"] * MIN_ROT_ACC
+        self.min_rot_acc = self.ctrl_params["acc_scaling"] * MIN_ROT_ACC
 
         # Move to dispense-start position
         pos, orient = POURING_POSES[self.lid_type][ingredient_params["pouring_position"]]
@@ -150,7 +151,8 @@ class Dispenser:
         self.log_data = log_data
         self.rate.sleep()
         self.start_wt = self.get_weight()
-        self.vel = self.last_vel = 0
+        self.last_vel = 0
+        self.last_acc = 0
 
         # setup logger
         if self.log_data:
@@ -210,7 +212,35 @@ class Dispenser:
 
         return dispensed_wt
 
-    def run_pd_control(self, target_wt: Number, err_threshold: Number) -> bool:
+    def run_control_loop(self, velocity: float, retract: bool = False):
+        last_velocity = self.last_vel
+        for _ in range(int(T_STEP / CONTROL_STEP)):
+            if velocity > last_velocity:
+                curr_velocity = min(last_velocity + self.max_rot_acc * CONTROL_STEP, velocity)
+            else:
+                curr_velocity = max(last_velocity + self.min_rot_acc * CONTROL_STEP, velocity)
+
+            # Convert the velocity into a twist
+            raw_twist = curr_velocity * self.base_raw_twist
+            # Convert the velocity into a twist
+            if self.trans_shake_generator is not None and (not retract or abs(self.trans_shake_generator.last_v) > 1e-3):
+                raw_twist[:3] += self.trans_shake_generator.get_twist()
+
+            # Transform the frame of the twist
+            curr_pose = self.robot_mg.get_current_pose()
+            twist_transform = get_transform(curr_pose, self.container_offset)
+            twist = T.TransformTwist(raw_twist, twist_transform)
+            twist = T.numpy2twist(twist)
+
+            self.robot_mg.send_cartesian_vel_trajectory(twist)
+            self.rate.sleep()
+            last_velocity = curr_velocity
+
+    def run_pd_control(
+        self,
+        target_wt: Number,
+        err_threshold: Number
+    ) -> bool:
         """
         Run the PD controller
         """
@@ -218,25 +248,17 @@ class Dispenser:
         start_T = T.pose2matrix(self.robot_mg.get_current_pose())
 
         # Setup shake generator
-        if self.ctrl_params["shaking"]:
-            if self.ctrl_params.get("trans_shake_params") is not None:
-                trans_shake_generator = prim.SinusoidalTrajectory(
-                    time_interval=T_STEP, **self.ctrl_params["trans_shake_params"]
-                )
-            else:
-                trans_shake_generator = None
-            if self.ctrl_params.get("rot_shake_params") is not None:
-                rot_shake_generator = prim.SinusoidalTrajectory(
-                    time_interval=T_STEP, **self.ctrl_params["rot_shake_params"]
-                )
-            else:
-                rot_shake_generator = None
+        if self.ctrl_params["shaking"] and self.ctrl_params.get("trans_shake_params") is not None:
+            self.trans_shake_generator = prim.SinusoidalTrajectory(
+                time_interval=CONTROL_STEP,
+                **self.ctrl_params["trans_shake_params"]
+            )
         else:
-            trans_shake_generator = rot_shake_generator = None
-    
+            self.trans_shake_generator = None
+
         error = target_wt
         wt_fb_acc = deque(maxlen=int(DERIVATIVE_WINDOW / T_STEP) + 1)
-        base_raw_twist = np.array([0, 0, 0] + self.ctrl_params["rot_axis"], dtype=np.float)
+        self.base_raw_twist = np.array([0, 0, 0] + self.ctrl_params["rot_axis"], dtype=np.float)
         success = True
 
         # Run controller as long as error is not within tolerance
@@ -250,43 +272,38 @@ class Dispenser:
                 success = False
                 break
 
-            error = target_wt - (curr_wt - self.start_wt)
             wt_fb_acc.append(curr_wt)
+            error = target_wt - (curr_wt - self.start_wt)
+            error_rate = -(wt_fb_acc[-1] - wt_fb_acc[0]) / DERIVATIVE_WINDOW
 
             p_term = self.ctrl_params["p_gain"] * error
             p_term = min(p_term, self.max_rot_vel)  # clamp p-term
-            d_term = self.ctrl_params["d_gain"] * ((min(wt_fb_acc) - max(wt_fb_acc)) / DERIVATIVE_WINDOW)
-            self.vel = p_term + d_term
+            d_term = self.ctrl_params["d_gain"] * error_rate
+            pid_vel = p_term + d_term
 
             # Clamp velocity based on acceleration and velocity limits
-            delta_vel = self.vel - self.last_vel
-            if np.sign(delta_vel) == 1 and delta_vel / T_STEP > self.max_rot_acc:
-                self.vel = self.last_vel + self.max_rot_acc * T_STEP
-            elif np.sign(delta_vel) == -1 and delta_vel / T_STEP < self.min_rot_acc:
-                self.vel = self.last_vel + self.min_rot_acc * T_STEP
-            self.vel = np.clip(self.vel, self.min_rot_vel, self.max_rot_vel)
+            max_vel = self.last_vel + MAX_ROT_ACC * T_STEP
+            min_vel = self.last_vel + MIN_ROT_ACC * T_STEP
 
-            # Convert the velocity into a twist
-            raw_twist = self.vel * base_raw_twist
-            if trans_shake_generator is not None:
-                raw_twist[:3] += trans_shake_generator.get_twist()
-            
-            # Transform the frame of the twist
+            pid_vel = max(min(pid_vel, max_vel), min_vel)
+            pid_vel = np.clip(pid_vel, self.min_rot_vel, self.max_rot_vel)
+
+            # Check if the angluar limits about the pouring axis have been reached
             curr_pose = self.robot_mg.get_current_pose()
-            twist_transform = get_transform(curr_pose, self.container_offset)
-            twist = T.TransformTwist(raw_twist, twist_transform)
+            angle, axis = get_rotation(start_T, T.pose2matrix(curr_pose))
+            if np.sum(axis * self.base_raw_twist[-3:]) < 0:
+                angle *= -1
 
-            # Add rotational shake into the twist using the necessary frame transformation
-            if rot_shake_generator is not None:
-                shake_twist = np.zeros_like(twist)
-                shake_twist[3:] += rot_shake_generator.get_twist()
-                shake_twist_transform = get_transform(curr_pose, np.zeros_like(self.container_offset))
-                twist += T.TransformTwist(shake_twist, shake_twist_transform)
-            twist = T.numpy2twist(twist)
+            if (np.abs(angle) >= self.angle_limit):
+                rospy.logerr("Container does not seem to have sufficient ingredient quantity...")
+                success = False
+                break
 
-            self.robot_mg.send_cartesian_vel_trajectory(twist)
-            accel = self.vel - self.last_vel
-            self.last_vel = self.vel
+            total_vel = pid_vel
+            self.run_control_loop(total_vel)
+
+            self.last_acc = (total_vel - self.last_vel) / T_STEP
+            self.last_vel = total_vel
 
             # Check if the angluar limits about the pouring axis have been reached
             if (np.abs(get_rotation(start_T, T.pose2matrix(curr_pose))[0]) >= self.angle_limit):
@@ -294,11 +311,10 @@ class Dispenser:
                 success = False
                 break
 
-            self.rate.sleep()
             if self.log_data:
                 self.out_file.write(
                     "{:10.2f} {:10.4f} {:10.4f} {:10.4f}\n".format(
-                        error, self.last_vel, accel, time.time() - iter_start_time
+                        error, self.last_vel, self.last_acc, time.time() - iter_start_time
                     )
                 )
 
@@ -317,36 +333,24 @@ class Dispenser:
                 break
 
             # Ensure the velocity is within limits
-            self.vel = -2 * ang
-            delta_vel = self.vel - self.last_vel
-            if np.sign(delta_vel) == 1 and delta_vel / T_STEP > self.max_rot_acc:
-                self.vel = self.last_vel + self.max_rot_acc * T_STEP
-            elif np.sign(delta_vel) == -1 and delta_vel / T_STEP < self.min_rot_acc:
-                self.vel = self.last_vel + self.min_rot_acc * T_STEP
-            self.vel = np.clip(self.vel, self.min_rot_vel, self.max_rot_vel)
+            vel = -2 * ang
+            vel = max(min(vel, max_vel), min_vel)
+            vel = np.clip(vel, self.min_rot_vel, self.max_rot_vel)
 
             # Add the necessary shake twists
-            raw_twist = self.vel * base_raw_twist
-            if (trans_shake_generator is not None and abs(trans_shake_generator.last_v) > 1e-3):
-                raw_twist[:3] += trans_shake_generator.get_twist()
-            twist_transform = get_transform(curr_pose, self.container_offset)
-            twist = T.TransformTwist(raw_twist, twist_transform)
-            if (rot_shake_generator is not None and abs(rot_shake_generator.last_v) > 1e-3):
-                shake_twist = np.zeros_like(twist)
-                shake_twist[3:] += rot_shake_generator.get_twist()
-                shake_twist_transform = get_transform(curr_pose, np.zeros_like(self.container_offset))
-                twist += T.TransformTwist(shake_twist, shake_twist_transform)
-            twist = T.numpy2twist(twist)
+            raw_twist = vel * self.base_raw_twist
+            if (self.trans_shake_generator is not None and abs(self.trans_shake_generator.last_v) > 1e-3):
+                raw_twist[:3] += self.trans_shake_generator.get_twist()
 
-            self.robot_mg.send_cartesian_vel_trajectory(twist)
-            accel = self.vel - self.last_vel
-            self.last_vel = self.vel
+            self.run_control_loop(vel, retract=True)
+            self.last_acc = (vel - self.last_vel) / T_STEP
+            self.last_vel = vel
 
             self.rate.sleep()
             if self.log_data:
                 self.out_file.write(
                     "{:10.2f} {:10.4f} {:10.4f} {:10.4f}\n".format(
-                        error, self.last_vel, accel, time.time() - iter_start_time
+                        error, self.last_vel, self.last_acc, time.time() - iter_start_time
                     )
                 )
 
