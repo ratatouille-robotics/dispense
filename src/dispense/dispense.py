@@ -89,9 +89,9 @@ class Dispenser:
         self.wt_subscriber = rospy.Subscriber(
             "/cooking_pot/weighing_scale", Weight, callback=self._weight_callback
         )
-        self.rate = rospy.Rate(1 / T_STEP)
+        self.rate = rospy.Rate(1 / CONTROL_STEP)
         self.robot_mg = robot_mg
-        self._data = None
+        self._w_data = None
 
     def _weight_callback(self, data: float) -> None:
         self._w_data = data
@@ -105,7 +105,7 @@ class Dispenser:
     def get_weight_fb(self) -> Tuple[float, bool]:
         return (
             self.get_weight(),
-            (rospy.Time.now() - self._data.header.stamp).to_sec() < 0.5,
+            (rospy.Time.now() - self._w_data.header.stamp).to_sec() < 0.5,
         )
 
     def dispense_ingredient(
@@ -149,7 +149,6 @@ class Dispenser:
 
         # set run-specific params
         self.log_data = log_data
-        self.rate.sleep()
         self.start_wt = self.get_weight()
         self.last_vel = 0
         self.last_acc = 0
@@ -364,16 +363,16 @@ class Dispenser:
         """
         if self.ctrl_params.get("trans_shake_params") is not None:
             shake_generator = prim.SinusoidalTrajectory(
-                time_interval=T_STEP, **self.ctrl_params["trans_shake_params"]
+                time_interval=CONTROL_STEP,
+                **self.ctrl_params["trans_shake_params"]
             )
         else:
             raise ValueError
 
         error = target_wt
-        wt_fb_acc = deque(maxlen=int(DERIVATIVE_WINDOW / T_STEP) + 1)
         self.robot_mg.send_cartesian_vel_trajectory(T.numpy2twist(np.zeros(6, dtype=np.float)))
         success = True
-        dispening_history = deque(maxlen=int(LOGICAL_TIMEOUT_WINDOW / T_STEP))
+        dispening_history = deque(maxlen=int(LOGICAL_TIMEOUT_WINDOW / CONTROL_STEP))
 
         while error > max(err_threshold - WEIGHING_SCALE_FLUCTUATION, 0) or abs(shake_generator.last_v) > 1e-3:
             iter_start_time = time.time()
@@ -384,7 +383,6 @@ class Dispenser:
                 break
 
             error = target_wt - (curr_wt - self.start_wt)
-            wt_fb_acc.append(curr_wt)
             dispening_history.append(curr_wt)
 
             # Generate the twist and transform it into the right frame
@@ -397,7 +395,7 @@ class Dispenser:
 
             self.robot_mg.send_cartesian_vel_trajectory(twist)
 
-             # Check if dispensing is still going on
+            # Check if dispensing is still going on
             if (
                 dispening_history.maxlen == len(dispening_history) and 
                 np.mean(list(dispening_history)[-10:]) - np.mean(list(dispening_history)[:10]) < MIN_WT_DISPENSED

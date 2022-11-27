@@ -29,7 +29,7 @@ The following steps have to executed to run ingredient dispensing in isolation:
 
 4. Start the streaming of weighing scale measurements by running
     ```
-    roslaunch sensor_interface start_sensors.launch force_torque:=0 user_input_pcb:=0
+    roslaunch sensor_interface start_sensors.launch force_torque:=0 auto_cooking_station:=0 sensing_station:=0
     ```
 
 5. Move the robot to a convenient position and place the container containing the desired ingredient onto the robot gripper.
