@@ -8,7 +8,7 @@ container:
 pouring_position: corner
 controller:
   type: logical
-  error_threshold: 14
+  error_threshold: 9
   p_gain: 0.0025
   d_gain: 0.02
   acc_scaling: 1
