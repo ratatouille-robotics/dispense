@@ -130,7 +130,7 @@ class Dispenser:
     OBS_HIST_LENGTH = [5, 5, 1, 1, 1, 1, 1]
     OBS_MEAN = [50, -25, 0, 0, 0, (np.pi / 6), 0.5]
     OBS_STD = [50, 25, MAX_ROT_VEL, MAX_ROT_ACC, MAX_ROT_VEL, (np.pi / 6), 0.5]
-    FULL_FILL_WEIGHT = 1400
+    FULL_FILL_WEIGHT = 1000
 
     def __init__(self, robot_mg: RobotMoveGroup, killer) -> None:
         assert (T_STEP / CONTROL_STEP).is_integer()
@@ -257,7 +257,8 @@ class Dispenser:
         self.rate.sleep()
         self.reset_rollout()
         policy = self.policy if ingredient_name == "rice" else None
-        self.ingredient_wt_start = ingredient_wt_start
+        # self.ingredient_wt_start = ingredient_wt_start
+        self.ingredient_wt_start = 520
 
         # setup logger
         if self.log_data:
@@ -431,6 +432,8 @@ class Dispenser:
                 break
             
             if policy is not None:
+                if (len(self.rollout_data["error"]) < 3):
+                    print("In rl")
                 self.rollout_data["error"].append(error)
                 self.rollout_data["error_rate"].append(error_rate)
                 self.rollout_data["velocity"].append(self.last_vel)
