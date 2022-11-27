@@ -26,6 +26,10 @@ import dispense.transforms as T
 import dispense.primitives as prim
 from statistics import median
 
+import torch as th
+from stable_baselines3.common.policies import BasePolicy
+from stable_baselines3.common.utils import obs_as_tensor
+
 T_STEP = 0.1
 CONTROL_STEP = 0.005
 
@@ -33,6 +37,8 @@ MAX_ROT_ACC = np.pi / 4
 MIN_ROT_ACC = -2 * MAX_ROT_ACC
 MAX_ROT_VEL = np.pi / 32
 MIN_ROT_VEL = -2 * MAX_ROT_VEL
+
+LEARNING_MAX_VEL = MAX_ROT_VEL / 2
 
 ANGLE_LIMIT = {
     "regular": {"corner": (2 / 5) * np.pi, "edge": (1 / 2) * np.pi},
@@ -119,7 +125,15 @@ def get_rotation(reference_T_start: np.ndarray, reference_T_end: np.ndarray) -> 
     
 
 class Dispenser:
+
+    OBS_DATA = ["error", "error_rate", "velocity", "acceleration", "pid_output", "angle_fb", "fill_ratio"]
+    OBS_HIST_LENGTH = [5, 5, 1, 1, 1, 1, 1]
+    OBS_MEAN = [50, -25, 0, 0, 0, (np.pi / 6), 0.5]
+    OBS_STD = [50, 25, MAX_ROT_VEL, MAX_ROT_ACC, MAX_ROT_VEL, (np.pi / 6), 0.5]
+    FULL_FILL_WEIGHT = 1400
+
     def __init__(self, robot_mg: RobotMoveGroup, killer) -> None:
+        assert (T_STEP / CONTROL_STEP).is_integer()
         # Setup comm with the weighing scale
         self.wt_subscriber = rospy.Subscriber(
             "/auto_cooking_station/weighing_scale", Weight, callback=self._weight_callback
@@ -129,6 +143,8 @@ class Dispenser:
         self._w_data = None
         self.robot_original_pose = None
         self.killer = killer
+        self.policy = th.load(pathlib.Path(__file__).parent.parent.parent / "policy.pt")
+
     def _weight_callback(self, data: float) -> None:
         self._w_data = data
 
@@ -143,6 +159,32 @@ class Dispenser:
             self.get_weight(),
             (rospy.Time.now() - self._w_data.header.stamp).to_sec() < 0.5,
         )
+
+    def get_last_state(self) -> np.ndarray:
+        last_obs = []
+        for i, obs_var in enumerate(self.OBS_DATA):
+            avail_size = len(self.rollout_data[obs_var])
+            reqd_size = self.OBS_HIST_LENGTH[i]
+            
+            t = 1
+            while(reqd_size > 0 and t <= avail_size):
+                last_obs.append((self.rollout_data[obs_var][-t] - self.OBS_MEAN[i]) / self.OBS_STD[i])
+                t += 1
+                reqd_size -= 1
+
+            while(reqd_size > 0):
+                last_obs.append((self.rollout_data[obs_var][0] - self.OBS_MEAN[i]) / self.OBS_STD[i])
+                reqd_size -= 1
+
+        last_obs = np.array(last_obs, dtype=np.float32)
+
+        return last_obs
+
+    def reset_rollout(self):
+        self.rollout_data = {}
+        for k in self.OBS_DATA:
+            self.rollout_data[k] = []
+            self.rollout_data["action"] = []
 
     def dispense_ingredient(
         self,
@@ -213,6 +255,9 @@ class Dispenser:
         self.last_vel = 0
         self.last_acc = 0
         self.rate.sleep()
+        self.reset_rollout()
+        policy = self.policy if ingredient_name == "rice" else None
+        self.ingredient_wt_start = ingredient_wt_start
 
         # setup logger
         if self.log_data:
@@ -232,7 +277,11 @@ class Dispenser:
         rospy.loginfo("Dispensing started...")
         if self.ctrl_params["type"] == "pd":
             self.angle_limit = ANGLE_LIMIT[self.lid_type][ingredient_params["pouring_position"]]
-            _ = self.run_pd_control(target_wt, err_threshold)
+            _ = self.run_pd_control(
+                target_wt=target_wt,
+                err_threshold=err_threshold,
+                policy=policy
+            )
         elif self.ctrl_params["type"] == "logical":
             _ = self.run_logical_control(target_wt, err_threshold)
 
@@ -307,7 +356,8 @@ class Dispenser:
     def run_pd_control(
         self,
         target_wt: Number,
-        err_threshold: Number
+        err_threshold: Number,
+        policy: Optional[BasePolicy] = None
     ) -> bool:
         """
         Run the PD controller
@@ -337,6 +387,7 @@ class Dispenser:
         # while error > err_threshold
             iter_start_time = time.time()
             curr_wt, is_recent = self.get_weight_fb()
+            wt_fb_acc.append(curr_wt)
             if not is_recent:
                 rospy.logerr(
                     "Weight feedback from weighing scale is too delayed. Stopping dispensing process."
@@ -344,7 +395,6 @@ class Dispenser:
                 success = False
                 break
 
-            wt_fb_acc.append(curr_wt)
             error = target_wt - (curr_wt - self.start_wt)
             error_rate = -(wt_fb_acc[-1] - wt_fb_acc[0]) / DERIVATIVE_WINDOW
 
@@ -367,6 +417,8 @@ class Dispenser:
             pid_vel = max(min(pid_vel, max_vel), min_vel)
             pid_vel = np.clip(pid_vel, self.min_rot_vel, self.max_rot_vel)
 
+            total_vel = pid_vel
+
             # Check if the angluar limits about the pouring axis have been reached
             curr_pose = self.robot_mg.get_current_pose()
             angle, axis = get_rotation(start_T, T.pose2matrix(curr_pose))
@@ -377,8 +429,28 @@ class Dispenser:
                 rospy.logerr("Container does not seem to have sufficient ingredient quantity...")
                 success = False
                 break
+            
+            if policy is not None:
+                self.rollout_data["error"].append(error)
+                self.rollout_data["error_rate"].append(error_rate)
+                self.rollout_data["velocity"].append(self.last_vel)
+                self.rollout_data["acceleration"].append(self.last_acc)
+                self.rollout_data["pid_output"].append(pid_vel)
+                self.rollout_data["angle_fb"].append(angle)
 
-            total_vel = pid_vel
+                ingredient_wt_current = self.ingredient_wt_start - (curr_wt - self.start_wt)
+                self.rollout_data["fill_ratio"].append(ingredient_wt_current / self.FULL_FILL_WEIGHT)
+
+                with th.no_grad():
+                    obs = self.get_last_state()
+                    obs_tensor = obs_as_tensor(obs, policy.device).view(1, -1)
+                    action, _, _, _ = policy(obs_tensor, deterministic=True)
+                action = action.cpu().item()
+                self.rollout_data["action"].append(action)
+
+                total_vel += (LEARNING_MAX_VEL * action)
+                total_vel = np.clip(total_vel, self.min_rot_vel, self.max_rot_vel)
+
             self.run_control_loop(total_vel)
 
             self.last_acc = (total_vel - self.last_vel) / T_STEP
