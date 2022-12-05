@@ -17,7 +17,7 @@ controller:
   shaking: True
   trans_shake_params:
     axis: [1, 0, 0]
-    amplitude: 0.007
+    amplitude: 0.009
     frequency: 4.5
     pattern: [1, 0, 0, 0]
 
