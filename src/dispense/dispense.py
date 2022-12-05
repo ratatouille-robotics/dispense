@@ -29,6 +29,7 @@ from statistics import median
 import torch as th
 from stable_baselines3.common.policies import BasePolicy
 from stable_baselines3.common.utils import obs_as_tensor
+from dispense.inventory import get_yaml_loader
 
 T_STEP = 0.1
 CONTROL_STEP = 0.005
@@ -39,6 +40,7 @@ MAX_ROT_VEL = np.pi / 32
 MIN_ROT_VEL = -2 * MAX_ROT_VEL
 
 LEARNING_MAX_VEL = MAX_ROT_VEL / 2
+INVENTORY_YAML_PATH = "src/ratatouille_planner/config/inventory.yaml"
 
 ANGLE_LIMIT = {
     "regular": {"corner": (2 / 5) * np.pi, "edge": (1 / 2) * np.pi},
@@ -180,6 +182,18 @@ class Dispenser:
 
         return last_obs
 
+    def get_rice_weight(self) -> float:
+        if os.path.exists(INVENTORY_YAML_PATH):
+            with open(file="inventory.yaml", mode="r") as temp:
+                inventory = yaml.load(temp, Loader=get_yaml_loader())
+                if not inventory:
+                    return self.FULL_FILL_WEIGHT / 2
+                for item in inventory:
+                    if item.name == "rice:":
+                        return float(item.quantity)
+        
+        return self.FULL_FILL_WEIGHT / 2
+
     def reset_rollout(self):
         self.rollout_data = {}
         for k in self.OBS_DATA:
@@ -257,8 +271,9 @@ class Dispenser:
         self.rate.sleep()
         self.reset_rollout()
         policy = self.policy if ingredient_name == "rice" else None
-        # self.ingredient_wt_start = ingredient_wt_start
-        self.ingredient_wt_start = 520
+        self.ingredient_wt_start = ingredient_wt_start
+        if ingredient_name == "rice":
+            self.ingredient_wt_start = self.get_rice_weight()
 
         # setup logger
         if self.log_data:
